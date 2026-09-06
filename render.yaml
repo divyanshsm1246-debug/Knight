@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: knight-realmes
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NODE_VERSION
+        value: 20.11.0
+    # Render's free web services use an EPHEMERAL filesystem — data.json
+    # (created by database.js) will be wiped on every redeploy or restart.
+    # To keep real data across deploys, attach a persistent disk:
+    disks:
+      - name: knight-data
+        mountPath: /data
+        sizeGB: 1
+    # ...and set DATA_DIR=/data as an extra env var in the Render dashboard
+    # (Environment tab) once the disk is attached, so database.js writes
+    # data.json there instead of the ephemeral app folder.

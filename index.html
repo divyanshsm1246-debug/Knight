@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knight</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23100f11'/%3E%3Cpath d='M12 4 L18 7.5 V14.5 L12 18 L6 14.5 V7.5 Z' fill='none' stroke='%23F3C623' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M6 7.5 L12 11 L18 7.5' fill='none' stroke='%23F3C623' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M12 11 V18' stroke='%23F3C623' stroke-width='1.5'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+<section class="auth-section" id="auth">
+  <div class="brand" style="margin-bottom: 32px; justify-content: center; position: relative; z-index: 10; font-size: 1.5rem;">
+    <svg class="brand-icon" style="width: 34px; height: 34px;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M4 6.5 L12 11 L20 6.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M12 11 V22" stroke="currentColor" stroke-width="1.5"/>
+    </svg>
+    Knight
+  </div>
+
+  <div class="auth-container" style="position: relative; z-index: 10;">
+    <div class="auth-header">
+      <h2 id="authTitle">Welcome back</h2>
+      <p id="authDesc">Enter your credentials to access your persistent workspace.</p>
+    </div>
+
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tab-signin">Sign In</div>
+      <div class="auth-tab" id="tab-signup">Sign Up</div>
+    </div>
+
+    <form id="knightForm">
+      <div id="signup-fields" style="display: none;">
+        <div class="field" id="field-avatar">
+          <label class="font-mono">identity matrix ~</label>
+          <div class="avatar-setup">
+            <div class="avatar-preview-wrap" id="authAvatarPreviewWrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <div>
+              <label class="upload-btn">Upload Custom
+                <input type="file" id="authAvatarUpload" accept="image/*" style="display:none;">
+              </label>
+              <span class="avatar-or">or pick a skeleton emblem</span>
+            </div>
+          </div>
+          <div class="avatar-grid" id="authAvatarGrid"></div>
+        </div>
+
+        <div class="field" id="field-role">
+          <label class="font-mono">primary path ~</label>
+          <div class="role-tabs" id="roleTabs">
+            <div class="role-tab active" data-role="Coder">Coder</div>
+            <div class="role-tab" data-role="Gamer">Gamer</div>
+            <div class="role-tab" data-role="Both">Both</div>
+          </div>
+        </div>
+
+        <div class="field" id="field-username">
+          <label class="font-mono" for="username">username ~</label>
+          <input type="text" id="username" placeholder="dev_knight">
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="font-mono" for="email">email ~</label>
+        <input type="email" id="email" placeholder="dev@knight.io" required>
+      </div>
+      <div class="field">
+        <label class="font-mono" for="password">passphrase</label>
+        <input type="password" id="password" placeholder="••••••••" required>
+      </div>
+      <div class="auth-actions">
+        <button type="button" class="guest-btn" id="guestBtn">Guest Bypass</button>
+        <button type="submit" class="submit-btn" id="submitBtn">Authenticate</button>
+      </div>
+    </form>
+    <p id="authError" style="color:var(--accent-coral); font-size:.8rem; margin-top:12px; display:none;"></p>
+  </div>
+</section>
+
+<section id="dashboard">
+  <div class="dash-header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M4 6.5 L12 11 L20 6.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M12 11 V22" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      Workspace / Nexus
+      <span id="headerDeviceBadge" class="device-badge">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span id="headerDeviceName">Windows</span>
+      </span>
+    </div>
+
+    <div style="display:flex; align-items:center; gap: 16px;">
+      <div class="notification-bell" onclick="openModal('notificationsModal')" title="System Alerts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px;"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+        <div class="notification-badge hidden" id="notifBadge"></div>
+      </div>
+      <div class="dash-user" style="display:flex; align-items:center; gap: 12px; cursor: pointer;" onclick="openModal('profileModal')">
+        <span style="text-align:right;">
+          <span style="display:block; font-size: 0.9rem; font-weight: 500; color: var(--text-secondary);" id="dashUsernameText">dev_knight</span>
+          <span class="social-id-chip" id="headerSocialIdChip" style="font-size:.62rem; padding:2px 8px; margin-top:2px; display:inline-block;">KNT-------</span>
+        </span>
+        <div id="dashUserAvatar" style="width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,0.4); border: 1px solid var(--panel-border); overflow:hidden; display:flex; align-items:center; justify-content:center;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dash-grid">
+    <div class="dash-card theme-blue" tabindex="0" onclick="openKnightPage('terminalPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg></div>
+      <h3>Terminal</h3>
+      <p>Real code execution across multiple languages — write code, run it, see actual output.</p>
+      <div class="enter-btn">Launch CLI <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-blue" tabindex="0" onclick="openKnightPage('studioPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"></path></svg></div>
+      <h3>Studio</h3>
+      <p>Search and browse real public projects, sorted by stars, category, or newest.</p>
+      <div class="enter-btn">Open Studio <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-blue" tabindex="0" onclick="openKnightPage('projectsPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></div>
+      <h3>Projects Manager</h3>
+      <p>Create real projects, add files, invite contributors by Social ID, review change requests.</p>
+      <div class="enter-btn">View Projects <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('arcadePage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="17" cy="12" r="1"></circle><circle cx="14" cy="12" r="1"></circle><line x1="6" y1="12" x2="10" y2="12"></line><line x1="8" y1="10" x2="8" y2="14"></line></svg></div>
+      <h3>Arcade / Game Booster</h3>
+      <p>A real playable memory-match game, built to test with your device's input mode.</p>
+      <div class="enter-btn">Play Arcade <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('commPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></div>
+      <h3>Communication</h3>
+      <p>Real-time chat with your friends, backed by our own Socket.IO server.</p>
+      <div class="enter-btn">Connect <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-neutral" tabindex="0" onclick="openModal('profileModal')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+      <h3>Social Network</h3>
+      <p>Connect with other developers by Social ID, showcase modules, collaborate.</p>
+      <div class="enter-btn">Enter Hub <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('notesPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+      <h3>Notes = Codes</h3>
+      <p>Private notes and code snippets, visible only to you.</p>
+      <div class="enter-btn">Open Notes <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('guidePage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+      <h3>Guide</h3>
+      <p>How every page and shortcut in Knight actually works.</p>
+      <div class="enter-btn">Read Guide <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-neutral" id="adminCard" style="display:none;" tabindex="0" onclick="openKnightPage('adminPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M12 2 20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z"/></svg></div>
+      <h3>Admin</h3>
+      <p>Site-wide activity and management, visible only to admin accounts.</p>
+      <div class="enter-btn">Open Admin <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('shortcutPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6.01" y2="8"/><line x1="10" y1="8" x2="10.01" y2="8"/><line x1="14" y1="8" x2="14.01" y2="8"/></svg></div>
+      <h3>Knight Shortcuts</h3>
+      <p>Every real keyboard shortcut built into this website — navigation, tools, and modal controls.</p>
+      <div class="enter-btn">Open Guide <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= Profile Modal ================= -->
+<div class="modal-overlay" id="profileModal">
+  <div class="modal-content">
+    <svg class="close-modal" onclick="closeModal('profileModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <div style="display:flex; align-items:center; gap: 16px; margin-bottom: 12px;">
+      <div id="modalAvatar" style="width: 64px; height: 64px; border-radius: 50%; background: rgba(0,0,0,0.4); border: 1px solid var(--panel-border); overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0;"></div>
+      <div>
+        <h2 id="modalUsername" style="font-size: 1.4rem; margin-bottom:4px; font-weight: 600;">dev_knight</h2>
+        <div style="display:flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <span id="modalRoleBadge" style="font-size: 0.75rem; color: var(--accent-green); background: rgba(108, 154, 139, 0.15); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(108, 154, 139, 0.3);">Coder</span>
+          <span style="font-size: 0.75rem; color: var(--accent-gold); background: rgba(243, 198, 35, 0.1); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(243, 198, 35, 0.2);">Level <span id="userLevelVal">1</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <span class="social-id-chip" id="socialIdChip">KNT-------</span>
+      <button class="nav-cta" style="font-size:.72rem; padding:6px 12px;" onclick="copySocialId()">Copy ID</button>
+    </div>
+
+    <p id="modalBio" style="font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.5; background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--panel-border);">
+      Full-stack developer building next-gen web tools & game engines.
+    </p>
+
+    <div class="profile-links-list" id="modalLinksList"></div>
+
+    <div class="profile-stats">
+      <div class="stat-box" onclick="incrementStat('followers')"><div class="stat-val" id="statFollowers">0</div><div class="stat-label">Followers</div></div>
+      <div class="stat-box" onclick="incrementStat('projects')"><div class="stat-val" id="statProjects">0</div><div class="stat-label">Projects</div></div>
+      <div class="stat-box" onclick="incrementStat('commits')"><div class="stat-val" id="statCommits">0</div><div class="stat-label">Commits</div></div>
+    </div>
+
+    <div class="friend-add-row">
+      <input type="text" id="friendSocialIdInput" placeholder="Add friend by Social ID (KNT-XXXXXX)">
+      <button class="nav-cta" onclick="sendFriendRequestUI()">Send</button>
+    </div>
+
+    <div class="profile-actions" style="margin-top:14px;">
+      <button class="nav-cta" style="width:100%; text-align:center;" onclick="openModal('editProfileModal')">Edit Profile & Links</button>
+      <button class="nav-cta" style="width:100%; text-align:center; background: rgba(255,255,255,0.08);" onclick="extractDataSheet()">Export Live Data Sheet (.json)</button>
+      <button class="nav-cta btn-golden" style="width:100%; text-align:center; margin-top:6px;" onclick="openDeviceSetup()">Device Optimization Settings</button>
+      <button class="nav-cta" style="width:100%; text-align:center; color:var(--accent-coral);" onclick="signOutUI()">Sign Out</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= Edit Profile Modal ================= -->
+<div class="modal-overlay" id="editProfileModal">
+  <div class="modal-content">
+    <svg class="close-modal" onclick="closeModal('editProfileModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 style="font-size: 1.4rem; margin-bottom: 20px; font-weight: 600;">Edit Profile</h2>
+    <form id="editProfileForm">
+      <div class="field">
+        <label class="font-mono">Profile Avatar</label>
+        <div class="avatar-setup">
+          <div class="avatar-preview-wrap" id="editAvatarPreviewWrap"></div>
+          <div>
+            <label class="upload-btn">Upload New Image
+              <input type="file" id="editAvatarUpload" accept="image/*" style="display:none;">
+            </label>
+            <span class="avatar-or">or pick from presets below</span>
+          </div>
+        </div>
+        <div class="avatar-grid" id="editAvatarGrid"></div>
+      </div>
+      <div class="field"><label class="font-mono">Display Username</label><input type="text" id="editUsernameInput" required></div>
+      <div class="field">
+        <label class="font-mono">Primary Role / Specialty</label>
+        <select id="editRoleSelect">
+          <option value="Coder">Coder / Developer</option>
+          <option value="Gamer">Gamer / Player</option>
+          <option value="Architect">Software Architect</option>
+          <option value="Designer">UI/UX Designer</option>
+          <option value="Full-Stack">Full-Stack Engineer</option>
+        </select>
+      </div>
+      <div class="field"><label class="font-mono">Bio / Description</label><textarea id="editBioInput" rows="3" style="resize:none;" placeholder="Tell the network about yourself..."></textarea></div>
+      <div class="field"><label class="font-mono">GitHub Profile Link</label><input type="url" id="editGithubInput" placeholder="https://github.com/username"></div>
+      <div class="field"><label class="font-mono">Twitter / X Handle</label><input type="text" id="editTwitterInput" placeholder="@username"></div>
+      <button type="submit" class="submit-btn" style="width:100%; margin-top:8px;">Save Profile Changes</button>
+    </form>
+  </div>
+</div>
+
+<!-- ================= Device Setup Modal ================= -->
+<div class="modal-overlay" id="deviceModal">
+  <div class="modal-content">
+    <svg class="close-modal" onclick="closeModal('deviceModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 style="font-size: 1.4rem; margin-bottom: 6px;">Device Optimization</h2>
+    <p style="font-size: 0.88rem; color: var(--text-secondary);">Select your active environment to tune shortcuts, focus states, and layout density.</p>
+    <div class="device-grid" id="deviceSelectionGrid">
+      <div class="device-card" data-device="Windows"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="4" width="8" height="8"/><rect x="13" y="4" width="8" height="8"/><rect x="3" y="14" width="8" height="8"/><rect x="13" y="14" width="8" height="8"/></svg><div style="font-weight:600;font-size:.9rem;">Windows</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Alt-key shortcuts</div></div>
+      <div class="device-card" data-device="MacBook"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M2 19h20l-2 2H4z"/></svg><div style="font-weight:600;font-size:.9rem;">MacBook</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">⌘-key shortcuts</div></div>
+      <div class="device-card" data-device="Smartphone"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Smartphone</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Touch optimized</div></div>
+      <div class="device-card" data-device="Tablet"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-green)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Tablet</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Edge scroll controls</div></div>
+      <div class="device-card" data-device="Console"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#F3C623" stroke-width="1.8" style="margin-bottom:8px;"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="17" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/></svg><div style="font-weight:600;font-size:.9rem;">Console</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">D-pad focus nav</div></div>
+      <div class="device-card" data-device="Handheld"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="6" width="18" height="12" rx="3"/><line x1="7" y1="12" x2="11" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><circle cx="15.5" cy="12.5" r="0.5" fill="currentColor"/><circle cx="17.5" cy="10.5" r="0.5" fill="currentColor"/></svg><div style="font-weight:600;font-size:.9rem;">Handheld</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Virtual A/B buttons</div></div>
+      <div class="device-card" data-device="Headphones"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg><div style="font-weight:600;font-size:.9rem;">Headphones</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Media-key tab nav</div></div>
+    </div>
+    <button class="nav-cta" style="width:100%; margin-top:16px; text-align:center;" onclick="closeModal('deviceModal'); openKnightPage('shortcutPage');">View Knight Shortcuts &rarr;</button>
+  </div>
+</div>
+
+<!-- ================= Notifications Modal ================= -->
+<div class="modal-overlay" id="notificationsModal">
+  <div class="modal-content">
+    <svg class="close-modal" onclick="closeModal('notificationsModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h2 style="font-size: 1.4rem; font-weight:600;">System Alerts</h2>
+      <button onclick="clearNotifications()" style="background:none; border:none; color:var(--accent-coral); font-size:0.8rem; cursor:pointer; font-weight:500;">Clear All</button>
+    </div>
+    <div id="notificationsContainer" style="display:flex; flex-direction:column; gap:12px;"></div>
+  </div>
+</div>
+
+<!-- ================= Tool Modal ================= -->
+<div class="modal-overlay" id="toolModal">
+  <div class="modal-content" style="max-width: 600px;">
+    <svg class="close-modal" onclick="closeModal('toolModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 id="toolModalTitle" style="font-size: 1.4rem; margin-bottom: 8px; font-weight:600;">Tool Name</h2>
+    <p id="toolModalSubtitle" style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 20px;">Tool active session details.</p>
+    <div id="toolModalBody" style="background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); border-radius: 14px; padding: 18px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; min-height: 180px; overflow-x: auto;"></div>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+      <button class="nav-cta" onclick="closeModal('toolModal')">Close Tool</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= Knight Shortcuts — full-screen page ================= -->
+<!-- ================= Projects Manager ================= -->
+<div class="knight-page" id="projectsPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('projectsPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Projects Manager</div>
+  </div>
+
+  <div id="projectsListView">
+    <button class="nav-cta btn-golden" onclick="openModal('newProjectModal')" style="margin-bottom:20px;">+ New Project</button>
+    <div class="dash-grid" id="myProjectsGrid"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="newProjectModal">
+  <div class="modal-content">
+    <svg class="close-modal" onclick="closeModal('newProjectModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 style="font-size:1.3rem; margin-bottom:18px;">New Project</h2>
+    <div class="field"><label class="font-mono">Name</label><input type="text" id="newProjName" placeholder="my-app"></div>
+    <div class="field"><label class="font-mono">Description</label><textarea id="newProjDesc" rows="2" style="resize:none;"></textarea></div>
+    <div class="field"><label class="font-mono">Category</label>
+      <select id="newProjCategory"><option>General</option><option>Web</option><option>Game</option><option>AI/ML</option><option>Tool</option><option>Mobile</option></select>
+    </div>
+    <button class="submit-btn" style="width:100%;" onclick="createProjectUI()">Create</button>
+  </div>
+</div>
+
+<div class="knight-page" id="projectDetailPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('projectDetailPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title" id="projectDetailTitle">Project</div>
+  </div>
+  <p id="projectDetailDesc" style="color:var(--text-secondary); margin-bottom:20px;"></p>
+
+  <div class="shortcut-category-label">Files</div>
+  <div id="projectFilesList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;"></div>
+  <div class="friend-add-row">
+    <input type="text" id="newFileNameInput" placeholder="filename.js" style="max-width:200px;">
+    <button class="nav-cta" onclick="addProjectFileUI()">+ Add File</button>
+  </div>
+
+  <div class="shortcut-category-label">Contributors</div>
+  <div id="projectMembersList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+  <div class="friend-add-row">
+    <input type="text" id="newMemberSocialId" placeholder="Social ID (KNT-XXXXXX)">
+    <select id="newMemberRole" style="max-width:130px;"><option value="viewer">Viewer</option><option value="contributor">Contributor</option><option value="editor">Editor</option></select>
+    <button class="nav-cta" onclick="addProjectMemberUI()">Invite</button>
+  </div>
+
+  <div class="shortcut-category-label">Change Requests</div>
+  <div id="changeRequestsList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;"></div>
+
+  <div class="shortcut-category-label">Deployment</div>
+  <p style="font-size:.82rem; color:var(--text-secondary); max-width:640px; margin-bottom:10px;">
+    Knight can't actually push your code to a live host from inside the browser — going live for real needs
+    a hosting provider's account and API key (Render, Vercel, Netlify, etc.). What it can do is keep a record
+    of where you deployed it, so your team always has the current link.
+  </p>
+  <div class="friend-add-row">
+    <input type="url" id="deployedUrlInput" placeholder="https://your-deployed-project.onrender.com">
+    <button class="nav-cta" onclick="saveDeployedUrlUI()">Save Link</button>
+  </div>
+</div>
+
+<!-- ================= Terminal — real code execution ================= -->
+<div class="knight-page" id="terminalPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('terminalPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Terminal</div>
+  </div>
+  <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:16px;">
+    Real execution via the public Piston runtime (emkc.org) — this actually compiles and runs your code, it's not a mock.
+  </p>
+  <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; align-items:center;">
+    <select id="termLanguage" style="max-width:200px; padding:10px 14px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:10px; color:var(--text-primary);">
+      <option value="javascript">JavaScript (Node)</option>
+      <option value="python">Python</option>
+      <option value="c++">C++</option>
+      <option value="c">C</option>
+      <option value="java">Java</option>
+      <option value="typescript">TypeScript</option>
+      <option value="go">Go</option>
+      <option value="rust">Rust</option>
+      <option value="php">PHP</option>
+      <option value="ruby">Ruby</option>
+      <option value="bash">Bash</option>
+    </select>
+    <button class="nav-cta btn-golden" id="runCodeBtn" onclick="runCodeUI()">▶ Run</button>
+    <label style="font-size:.8rem; display:flex; align-items:center; gap:6px; color:var(--text-secondary);">
+      <input type="checkbox" id="termAudioToggle" checked> Error sound
+    </label>
+  </div>
+  <textarea id="termCodeInput" spellcheck="false" style="width:100%; min-height:220px; background:rgba(0,0,0,.35); border:1px solid var(--panel-border); border-radius:14px; padding:16px; color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:.85rem; resize:vertical;">console.log("Hello from Knight Terminal!");</textarea>
+  <div class="shortcut-category-label">Output</div>
+  <pre id="termOutput" style="background:rgba(0,0,0,.4); border:1px solid var(--panel-border); border-radius:14px; padding:16px; font-family:'JetBrains Mono',monospace; font-size:.85rem; min-height:120px; white-space:pre-wrap; color:var(--text-secondary);">Ready.</pre>
+</div>
+
+<!-- ================= Studio — real project discovery ================= -->
+<div class="knight-page" id="studioPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('studioPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Studio</div>
+  </div>
+  <div style="display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+    <input type="text" class="shortcut-search" id="studioSearchInput" placeholder="Search projects…" style="margin-bottom:0; flex:1; min-width:200px;">
+    <select id="studioCategoryFilter" style="padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary);">
+      <option value="">All categories</option>
+      <option>General</option><option>Web</option><option>Game</option><option>AI/ML</option><option>Tool</option><option>Mobile</option>
+    </select>
+    <select id="studioSortSelect" style="padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary);">
+      <option value="stars">Most starred</option>
+      <option value="created_at">Newest</option>
+    </select>
+  </div>
+  <div class="dash-grid" id="studioGrid"></div>
+</div>
+
+<!-- ================= Communication — real-time chat ================= -->
+<div class="knight-page" id="commPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('commPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Communication</div>
+  </div>
+  <div style="display:flex; gap:24px; flex-wrap:wrap;">
+    <div style="min-width:220px;">
+      <div class="shortcut-category-label">Friends</div>
+      <div id="commFriendsList" style="display:flex; flex-direction:column; gap:8px;"></div>
+    </div>
+    <div style="flex:2; min-width:280px;">
+      <div class="shortcut-category-label" id="commThreadLabel">Select a friend to chat</div>
+      <div id="commThread" style="background:rgba(0,0,0,.25); border:1px solid var(--panel-border); border-radius:14px; padding:16px; min-height:320px; max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;"></div>
+      <div class="friend-add-row">
+        <input type="text" id="commMessageInput" placeholder="Type a message…">
+        <button class="nav-cta" onclick="sendChatMessageUI()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= Notes = Codes ================= -->
+<div class="knight-page" id="notesPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('notesPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Notes = Codes</div>
+  </div>
+  <button class="nav-cta btn-golden" onclick="createNoteUI()" style="margin-bottom:20px;">+ New Note</button>
+  <div id="notesGrid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;"></div>
+</div>
+
+<!-- ================= Arcade — real playable game ================= -->
+<div class="knight-page" id="arcadePage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('arcadePage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Arcade — Memory Match</div>
+  </div>
+  <p style="font-size:.85rem; color:var(--text-secondary); margin-bottom:16px;">Moves: <span id="memoryMoves">0</span> · Matches: <span id="memoryMatches">0</span>/8</p>
+  <button class="nav-cta" onclick="startMemoryGame()" style="margin-bottom:16px;">Restart</button>
+  <div id="memoryBoard" style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; max-width:480px;"></div>
+</div>
+
+<!-- ================= Guide ================= -->
+<div class="knight-page" id="guidePage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('guidePage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Guide</div>
+  </div>
+  <div style="max-width:760px; display:flex; flex-direction:column; gap:22px; color:var(--text-secondary); font-size:.92rem; line-height:1.6;">
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Terminal</h3>Pick a language, write code, hit Run. It executes for real on a public runtime — output (or real errors) appear below.</div>
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Projects Manager</h3>Create a project, add files, and invite people by their Social ID as Viewer, Contributor, or Editor. Contributors' edits appear as Change Requests you approve or reject.</div>
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Studio</h3>Search and filter every public project on Knight, sorted by stars or recency.</div>
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Communication</h3>Pick a friend from your list and chat in real time — messages sync instantly via our own server (Socket.IO).</div>
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Notes = Codes</h3>Private notes only you can see — good for snippets, passwords-you-shouldn't-store-here, or scratch ideas.</div>
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Social Network</h3>Your Profile card shows your unique Social ID. Share it so others can send you a friend request.</div>
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Device Optimization</h3>Pick your device in Profile → Device Optimization Settings to switch input mode: Windows/Mac shortcuts, Tablet edge-scroll, Console D-pad, Handheld A/B buttons, or Headphone media-key navigation.</div>
+    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Deployment</h3>Knight can't host your project live — that needs a real hosting account. Save your deployed link on a project page once you've deployed it elsewhere, so your team always has it.</div>
+  </div>
+</div>
+
+<!-- ================= Admin ================= -->
+<div class="knight-page" id="adminPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('adminPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Admin</div>
+  </div>
+  <div id="adminBody">Checking access…</div>
+</div>
+
+<!-- ================= Knight Shortcuts ================= -->
+<div class="knight-page" id="shortcutPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('shortcutPage')">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </div>
+    <div class="page-title">Knight Shortcuts</div>
+  </div>
+  <div class="shortcut-os-tabs">
+    <div class="os-tab active" data-os="windows">Windows keys</div>
+    <div class="os-tab" data-os="macos">Mac keys</div>
+  </div>
+  <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:16px;">
+    These are real, working shortcuts inside Knight itself — not your operating system's shortcuts. Try them right now.
+  </p>
+  <input type="text" class="shortcut-search" id="shortcutSearchInput" placeholder="Search Knight shortcuts…">
+  <p id="shortcutCount" style="font-size:.8rem; color:var(--text-tertiary); margin-bottom:16px;"></p>
+  <div class="shortcut-grid" id="shortcutGrid"></div>
+</div>
+
+<div id="tabletEdgeControls" class="floating-controls">
+  <div class="edge-btn" onclick="window.scrollBy({top: -300, behavior: 'smooth'})" title="Scroll Up"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></div>
+  <div class="edge-btn" onclick="window.scrollBy({top: 300, behavior: 'smooth'})" title="Scroll Down"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg></div>
+</div>
+
+<div id="handheldControls" class="floating-controls">
+  <div class="action-btn btn-b" id="btnB">B</div>
+  <div class="action-btn btn-a" id="btnA">A</div>
+</div>
+
+<div id="consoleDpad" class="floating-controls">
+  <div class="dpad-btn dpad-up" id="dpadUp">▲</div>
+  <div class="dpad-btn dpad-left" id="dpadLeft">◀</div>
+  <div class="dpad-btn dpad-center" id="dpadCenter">●</div>
+  <div class="dpad-btn dpad-right" id="dpadRight">▶</div>
+  <div class="dpad-btn dpad-down" id="dpadDown">▼</div>
+</div>
+
+<div id="toast"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg><span id="toastMsg">Action completed successfully</span></div>
+
+<script src="script.js"></script>
+</body>
+</html>
