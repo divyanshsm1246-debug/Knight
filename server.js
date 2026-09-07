@@ -20,7 +20,20 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname)); // serves index.html, style.css, script.js from the same folder
+// SECURITY FIX: express.static(__dirname) used to serve EVERY file in this
+// folder — including server.js, database.js, package.json, and worst of all
+// data.json (which holds password hashes and every user's data) to anyone
+// who requested them directly. That's a real data leak, not a style issue.
+// Only the three files the browser actually needs are served now.
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/style.css', (req, res) => {
+  res.setHeader('Content-Type', 'text/css');
+  res.sendFile(path.join(__dirname, 'style.css'));
+});
+app.get('/script.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'script.js'));
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
@@ -205,6 +218,14 @@ io.on('connection', (socket) => {
     io.to(`user:${toUserId}`).emit('new_message', message);
     io.to(`user:${socket.userId}`).emit('new_message', message); // echo to sender's other tabs
   });
+});
+
+// Catch-all 404 — logs the exact path so Render's logs tell you
+// immediately if the frontend is requesting a route that doesn't exist,
+// instead of a silent unexplained 404 in the browser.
+app.use((req, res) => {
+  console.warn(`404: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` });
 });
 
 server.listen(PORT, () => console.log(`Knight server running on port ${PORT}`));
