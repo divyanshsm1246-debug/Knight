@@ -42,6 +42,16 @@ app.get('/script.js', (req, res) => {
   res.sendFile(path.join(__dirname, 'script.js'));
 });
 
+// BUILD/HEALTH CHECK — hit GET /api/health on your live Render URL after
+// deploying. If "build" below doesn't match what you expect, Render is
+// still serving an older version and none of the fixes in this file are
+// live yet — that's the single most common reason "I fixed it" doesn't
+// show up in the browser. Bump BUILD_TAG any time you redeploy and want
+// to confirm it landed.
+const BUILD_TAG = 'knight-2026-09-13-hardened-errors';
+console.log('Knight server starting — build:', BUILD_TAG);
+app.get('/api/health', (req, res) => res.json({ ok: true, build: BUILD_TAG, time: new Date().toISOString() }));
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
@@ -547,6 +557,20 @@ app.use((req, res) => {
   }
   console.warn(`404: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` });
+});
+
+// LAST-RESORT ERROR HANDLER — every /api/ route above already wraps its own
+// logic in try/catch, but a few things happen OUTSIDE those try blocks: a
+// malformed JSON body gets rejected by express.json() itself, for instance.
+// Without this, that kind of failure fell through to Express's built-in
+// error page — plain HTML, not JSON. The browser was still expecting JSON
+// (that's what api() in script.js always parses), so it would either error
+// oddly or, in older code, silently end up with an empty {} and no clue why.
+// This guarantees every single response — success or failure — is JSON.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error('Unhandled error on', req.method, req.originalUrl, ':', err);
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
 server.listen(PORT, () => console.log(`Knight server running on port ${PORT}`));

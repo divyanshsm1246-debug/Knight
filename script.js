@@ -162,7 +162,24 @@ async function api(path, { method = 'GET', body } = {}) {
   } finally {
     clearTimeout(timeout);
   }
-  const data = await res.json().catch(() => ({}));
+  // Read as text first, then parse — this used to silently swallow a
+  // broken response ("res.json().catch(() => ({}))") and hand back an
+  // EMPTY object even on a 200 OK. That's exactly how "No profile returned
+  // from server" could happen with no other clue: token and profile both
+  // just quietly vanish instead of surfacing the real problem. Now a
+  // non-JSON body (an HTML error page, a crashed response, a proxy
+  // timeout page) is treated as the failure it actually is, and the raw
+  // body is logged so it's diagnosable instead of a mystery.
+  const rawText = await res.text();
+  let data;
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch (parseErr) {
+    console.error(`api() got a non-JSON response for ${path} — status ${res.status}, body:`, rawText.slice(0, 500));
+    const err = new Error(`Server sent back an invalid response (status ${res.status}) instead of the expected data. Open the browser console for details, or check the server logs.`);
+    err.status = res.status;
+    throw err;
+  }
   if (!res.ok) {
     const err = new Error(data.error || `Request failed (${res.status})`);
     err.status = res.status;
@@ -1649,6 +1666,7 @@ tabSignin.addEventListener('click', () => {
   document.getElementById('authTitle').textContent = 'Welcome back';
   document.getElementById('authDesc').textContent = 'Enter your credentials to access your persistent workspace.';
   submitBtn.textContent = 'Authenticate';
+  document.getElementById('password').setAttribute('autocomplete', 'current-password');
 });
 tabSignup.addEventListener('click', () => {
   tabSignup.classList.add('active'); tabSignin.classList.remove('active');
@@ -1656,6 +1674,7 @@ tabSignup.addEventListener('click', () => {
   document.getElementById('authTitle').textContent = 'Create Account';
   document.getElementById('authDesc').textContent = 'Initialize your workspace and arcade profile.';
   submitBtn.textContent = 'Initialize';
+  document.getElementById('password').setAttribute('autocomplete', 'new-password');
 });
 let pendingRole = 'Coder';
 document.querySelectorAll('.role-tab').forEach(tab => {
@@ -1726,6 +1745,7 @@ function applyProfileToState(profile) {
     // This is what used to crash as "Cannot read properties of undefined
     // (reading 'userId')" — the server now self-heals missing profiles so
     // this shouldn't fire in practice, but fail loudly instead of crashing if it ever does.
+    console.error('applyProfileToState received a falsy profile:', profile);
     showToast('Account data is incomplete — please try signing in again');
     throw new Error('No profile returned from server');
   }
