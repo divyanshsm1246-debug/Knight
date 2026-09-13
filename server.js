@@ -45,6 +45,12 @@ app.get('/script.js', (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
+// Log anything that would otherwise die silently — without this, a crash
+// deep in a promise chain can leave you with a mysteriously empty/odd
+// response and nothing in the logs explaining why.
+process.on('unhandledRejection', (reason) => console.error('UNHANDLED REJECTION:', reason));
+process.on('uncaughtException', (err) => console.error('UNCAUGHT EXCEPTION:', err));
+
 // ---------- AUTH HELPERS ----------
 function signToken(userId) {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
@@ -90,9 +96,10 @@ app.post('/api/auth/signup', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = db.createUser(email, passwordHash);
     const profile = db.createProfile(user.id, { username: username || email.split('@')[0], role: role || 'Coder' });
+    if (!profile) { console.error('signup: createProfile returned falsy for user', user.id); return res.status(500).json({ error: 'Account was created but the profile could not be built — check server logs' }); }
     const token = signToken(user.id);
     res.json({ token, profile });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { console.error('signup error:', e); res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -103,18 +110,20 @@ app.post('/api/auth/login', async (req, res) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
     const profile = ensureProfile(user);
+    if (!profile) { console.error('login: ensureProfile returned falsy for user', user.id); return res.status(500).json({ error: 'Could not load or create a profile — check server logs' }); }
     const token = signToken(user.id);
     res.json({ token, profile });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { console.error('login error:', e); res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/auth/guest', (req, res) => {
   try {
     const user = db.createGuestUser();
     const profile = db.createProfile(user.id, { username: 'Guest_Knight', role: 'Coder' });
+    if (!profile) { console.error('guest signup: createProfile returned falsy for user', user.id); return res.status(500).json({ error: 'Guest account was created but the profile could not be built' }); }
     const token = signToken(user.id);
     res.json({ token, profile });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { console.error('guest signup error:', e); res.status(500).json({ error: e.message }); }
 });
 
 // ---------- PASSKEYS (WebAuthn — real ceremony via @simplewebauthn/server) ----------

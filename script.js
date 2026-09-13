@@ -1858,4 +1858,10 @@ async function boot() {
     history.replaceState({}, '', '/');
   }
 }
-window.addEventListener('DOMContentLoaded', boot);
+window.addEventListener('DOMContentLoaded', () => {
+  // The block screen (index.html) already hides the whole app visually when
+  // framed — this stops the real app from even trying to restore a session
+  // or call the API inside someone else's iframe.
+  if (window.self !== window.top) return;
+  boot();
+});

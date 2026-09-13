@@ -4,15 +4,50 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Knight</title>
+<script>
+  // Runs before anything else on the page. If Knight is loaded inside
+  // someone else's iframe (an online "compiler"/preview tool, etc.) we
+  // never want the real app — with live tokens, forms, and API calls — to
+  // spin up inside a frame we don't control. This flags that state
+  // immediately so the CSS below can hide everything except a simple
+  // branded screen, before a single pixel of the real app is painted.
+  if (window.self !== window.top) {
+    document.documentElement.classList.add('is-framed');
+  }
+</script>
+<style>
+  #frameBlockScreen{ display:none; }
+  html.is-framed body > *:not(#frameBlockScreen){ display:none !important; }
+  html.is-framed #frameBlockScreen{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:16px; height:100vh; width:100vw; background:#100f11; color:#e8e6e3;
+    font-family:'Inter',sans-serif; text-align:center; padding:24px; box-sizing:border-box;
+  }
+  html.is-framed #frameBlockScreen p{ color:#9a9691; font-size:.9rem; max-width:320px; margin:0; }
+  html.is-framed #frameBlockScreen a{
+    color:#100f11; background:#F3C623; text-decoration:none; font-weight:600;
+    padding:10px 22px; border-radius:24px; font-size:.9rem; margin-top:6px;
+  }
+</style>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23100f11'/%3E%3Cpath d='M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z' fill='none' stroke='%23F3C623' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M15.8 18.5H9.4l.7-2.3c-.7-.8-1.1-1.7-1-2.7.2-1.4 1.3-2.4 1.7-3.7.2-.8-.1-1.5-.8-1.8-.4-.2-.4-.7-.1-.9l1.1-1.1c.2-.2.6-.3.8-.1 1.2.6 2.4 1.7 2.9 3 .3.8.3 1.6.2 2.5-.1 1-.6 1.9-.6 2.9 0 1.4.7 2.6 1.5 3.3z' fill='%23F3C623'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="/socket.io/socket.io.js"></script>
-<script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+<script src="https://unpkg.com/@simplewebauthn/browser@13/dist/bundle/index.umd.min.js"></script>
 </head>
 <body>
+
+<div id="frameBlockScreen">
+  <svg viewBox="0 0 24 24" width="56" height="56" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z" stroke="#F3C623" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M15.8 18.5H9.4l.7-2.3c-.7-.8-1.1-1.7-1-2.7.2-1.4 1.3-2.4 1.7-3.7.2-.8-.1-1.5-.8-1.8-.4-.2-.4-.7-.1-.9l1.1-1.1c.2-.2.6-.3.8-.1 1.2.6 2.4 1.7 2.9 3 .3.8.3 1.6.2 2.5-.1 1-.6 1.9-.6 2.9 0 1.4.7 2.6 1.5 3.3z" fill="#F3C623"/>
+  </svg>
+  <h1 style="font-size:1.3rem; margin:0;">Knight</h1>
+  <p>This app can't run inside an embedded preview or compiler window.</p>
+  <a href="/" target="_top">Open Knight →</a>
+</div>
 
 <section class="auth-section" id="auth">
   <div class="brand" style="margin-bottom: 32px; justify-content: center; position: relative; z-index: 10; font-size: 1.5rem;">
