@@ -138,13 +138,36 @@ function authHeaders() {
   return authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
 }
 async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(API + path, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: body ? JSON.stringify(body) : undefined
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let res;
+  try {
+    res = await fetch(API + path, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+  } catch (networkErr) {
+    // Never confuse "the server didn't answer" with "the server said no" —
+    // this used to log people out on a slow Render free-tier cold start,
+    // which looked exactly like a random authentication failure.
+    const err = new Error(
+      networkErr.name === 'AbortError'
+        ? 'The server took too long to respond — it may be waking up from being idle (free hosting tiers sleep after inactivity). Please try again in a few seconds.'
+        : 'Could not reach the server — check your connection and try again.'
+    );
+    err.isNetworkError = true;
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -152,7 +175,9 @@ const DEFAULT_STATE = {
   userId: null, socialId: null, username: "", email: "", role: "Coder",
   bio: "", github: "", twitter: "", device: "Windows", level: 1,
   stats: { followers: 0, projects: 0, commits: 0 },
-  avatarImgSrc: null, notifications: [], friendRequests: []
+  avatarImgSrc: null, notifications: [], friendRequests: [],
+  camSettings: { deviceId: '', micId: '', mirror: true },
+  socialSettings: { allowFriendRequests: true, autoAcceptFriends: false, showSocialIdOnCard: true }
 };
 let userState = { ...DEFAULT_STATE };
 
@@ -200,7 +225,7 @@ function detectLikelyDevice() {
 function applyDeviceCSS(deviceName) {
   document.body.classList.remove('device-windows','device-macbook','device-smartphone','device-tablet','device-console','device-handheld','device-headphones');
   document.body.classList.add('device-' + deviceName.toLowerCase());
-  document.querySelectorAll('#deviceSelectionGrid .device-card').forEach(card => {
+  document.querySelectorAll('.device-card').forEach(card => {
     card.classList.toggle('selected', card.getAttribute('data-device') === deviceName);
   });
   const badge = document.getElementById('headerDeviceName');
@@ -216,8 +241,11 @@ function selectDevice(deviceName) {
 }
 
 window.addEventListener('keydown', (e) => {
+  const isAuthenticated = userState.userId && document.getElementById('dashboard').style.display !== 'none';
   const toolMap = { '1':'terminalPage','2':'projectsPage','3':'studioPage','4':'commPage','5':'arcadePage' };
   if (e.key === 'Escape') { closeAllModals(); closeActiveKnightPage(); }
+  if (!isAuthenticated) return; // Alt/⌘ shortcuts below used to fire even on the login screen
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openCommandPalette(); }
   if (e.key === '?' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
     e.preventDefault(); openKnightPage('shortcutPage'); showToast('? → Knight Shortcuts');
   }
@@ -262,29 +290,157 @@ function closeAllModals() { document.querySelectorAll('.modal-overlay.active').f
 function getActiveKnightPageId() {
   return document.querySelector('.knight-page.active')?.id || null;
 }
-function openKnightPage(id) {
+function onKnightPageOpen(id) {
+  if (id === 'socialPage') loadSocialPageUI();
+  if (id === 'settingsPage') loadSettingsPageUI();
+  if (id === 'gameBoosterPage') loadGameBoosterUI();
+  if (id === 'linkDeployerPage') loadLinkDeployerUI();
+}
+
+// ============================================================
+// COMMAND PALETTE — ⌘K / Ctrl+K. Real navigation + real actions,
+// no dead entries.
+// ============================================================
+const KNIGHT_COMMANDS = [
+  { label: 'Terminal', hint: 'Open', action: () => openKnightPage('terminalPage') },
+  { label: 'Studio', hint: 'Open', action: () => openKnightPage('studioPage') },
+  { label: 'Projects Manager', hint: 'Open', action: () => openKnightPage('projectsPage') },
+  { label: 'Arcade', hint: 'Open', action: () => openKnightPage('arcadePage') },
+  { label: 'Game Booster', hint: 'Open', action: () => openKnightPage('gameBoosterPage') },
+  { label: 'Communication', hint: 'Open', action: () => openKnightPage('commPage') },
+  { label: 'Social & Friends', hint: 'Open', action: () => openKnightPage('socialPage') },
+  { label: 'Link Deployer', hint: 'Open', action: () => openKnightPage('linkDeployerPage') },
+  { label: 'Notes = Codes', hint: 'Open', action: () => openKnightPage('notesPage') },
+  { label: 'Guide', hint: 'Open', action: () => openKnightPage('guidePage') },
+  { label: 'Settings', hint: 'Open', action: () => openKnightPage('settingsPage') },
+  { label: 'Device Optimization Keys', hint: 'Open', action: () => openKnightPage('shortcutPage') },
+  { label: 'My Profile', hint: 'Open', action: () => openModal('profileModal') },
+  { label: 'Notifications', hint: 'Open', action: () => openModal('notificationsModal') },
+  { label: 'Change Device Profile', hint: 'Open', action: () => openModal('deviceModal') },
+  { label: 'Copy my Social ID', hint: 'Action', action: () => copySocialId() },
+  { label: 'Toggle Compact Dashboard', hint: 'Action', action: () => document.getElementById('settingsCompactToggle')?.click() },
+  { label: 'Add a Passkey', hint: 'Action', action: () => addPasskeyUI() },
+  { label: 'Sign Out', hint: 'Action', action: () => signOutUI() }
+];
+let cmdkActiveIndex = 0;
+function openCommandPalette() {
+  if (!userState.userId) return; // only meaningful once inside the dashboard
+  closeAllModals();
+  openModal('commandPaletteModal');
+  const input = document.getElementById('cmdkInput');
+  input.value = '';
+  renderCommandResults('');
+  setTimeout(() => input.focus(), 30);
+}
+function renderCommandResults(query) {
+  const q = query.trim().toLowerCase();
+  const matches = KNIGHT_COMMANDS.filter(c => c.label.toLowerCase().includes(q));
+  cmdkActiveIndex = 0;
+  const box = document.getElementById('cmdkResults');
+  box.innerHTML = matches.length ? matches.map((c, i) => `
+    <div class="cmdk-item${i === 0 ? ' active' : ''}" data-idx="${i}" onclick="runCommand(${i}, '${q.replace(/'/g, "\\'")}')">
+      <span>${c.label}</span><span class="cmdk-item-hint">${c.hint}</span>
+    </div>`).join('') : '<p style="padding:16px; color:var(--text-tertiary); font-size:.85rem;">No matching commands.</p>';
+  box.dataset.query = q;
+}
+function runCommand(idx, query) {
+  const q = (query ?? document.getElementById('cmdkResults').dataset.query ?? '').toLowerCase();
+  const matches = KNIGHT_COMMANDS.filter(c => c.label.toLowerCase().includes(q));
+  const cmd = matches[idx];
+  closeModal('commandPaletteModal');
+  if (cmd) cmd.action();
+}
+document.getElementById('cmdkInput')?.addEventListener('input', (e) => renderCommandResults(e.target.value));
+document.getElementById('cmdkInput')?.addEventListener('keydown', (e) => {
+  const box = document.getElementById('cmdkResults');
+  const items = Array.from(box.querySelectorAll('.cmdk-item'));
+  if (e.key === 'ArrowDown') { e.preventDefault(); cmdkActiveIndex = Math.min(cmdkActiveIndex + 1, items.length - 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); cmdkActiveIndex = Math.max(cmdkActiveIndex - 1, 0); }
+  else if (e.key === 'Enter') { e.preventDefault(); items[cmdkActiveIndex]?.click(); return; }
+  else return;
+  items.forEach((el, i) => el.classList.toggle('active', i === cmdkActiveIndex));
+  items[cmdkActiveIndex]?.scrollIntoView({ block: 'nearest' });
+});
+function onKnightPageClose(id) {
+  if (id === 'gameBoosterPage') stopFpsMeter();
+}
+function openKnightPage(id, opts = {}) {
   if (!document.getElementById(id)) return;
   closeAllModals(); // a full-screen page should never be hidden behind a leftover modal
+  const previousId = getActiveKnightPageId();
+  if (previousId && previousId !== id) onKnightPageClose(previousId);
   document.querySelectorAll('.knight-page.active').forEach(p => p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   window.scrollTo({ top: 0 });
-  if (window.location.hash !== '#' + id) history.pushState({ page: id }, '', '#' + id);
+  if (opts.pushHistory !== false) {
+    const path = opts.path || pathForPage(id);
+    if (window.location.pathname !== path) history.pushState({ page: id }, '', path);
+  }
+  onKnightPageOpen(id);
 }
 function closeKnightPage(id) {
   document.getElementById(id)?.classList.remove('active');
-  if (window.location.hash) history.pushState({}, '', window.location.pathname + window.location.search);
+  onKnightPageClose(id);
+  if (window.location.pathname !== '/') history.pushState({}, '', '/');
 }
 function closeActiveKnightPage() {
   const activeId = getActiveKnightPageId();
   if (activeId) closeKnightPage(activeId);
 }
-window.addEventListener('popstate', (e) => {
+
+// ============================================================
+// URL ROUTING — real paths, not hash fragments, each carrying the
+// signed-in user's Social ID as a path segment (e.g. /terminal/KNT-AB12CD).
+// Deep links, browser back/forward, and refresh-on-any-page all work
+// because server.js falls through to index.html for any unknown GET path.
+// Note: the Social ID in the URL is cosmetic/identifying only — actual
+// access is always scoped server-side to whoever the JWT belongs to, so a
+// stale or mismatched id segment in the address bar can't expose anyone
+// else's data.
+// ============================================================
+const PAGE_ROUTES = {
+  terminalPage: '/terminal', studioPage: '/studio', projectsPage: '/projects',
+  arcadePage: '/arcade', gameBoosterPage: '/game-booster', commPage: '/messages',
+  socialPage: '/social', linkDeployerPage: '/deploy', notesPage: '/notes',
+  guidePage: '/guide', settingsPage: '/settings', adminPage: '/admin', shortcutPage: '/shortcuts'
+};
+function mySocialSegment() { return userState.socialId || 'guest'; }
+function pathForPage(id) {
+  const base = PAGE_ROUTES[id];
+  return base ? `${base}/${mySocialSegment()}` : '/';
+}
+function pathForProject(projectId) { return `/projects/${mySocialSegment()}/${projectId}`; }
+// Resolves a URL path to either a static page id, or a dynamic project route.
+// Accepts both "/page/:socialId" (normal) and a bare "/page" (tolerated, in
+// case someone hand-types or shares a link without the id segment).
+function resolveRoute(pathname) {
+  const projectMatch = pathname.match(/^\/projects\/[^/]+\/([a-zA-Z0-9-]+)\/?$/);
+  if (projectMatch) return { pageId: 'projectDetailPage', projectId: projectMatch[1] };
+  for (const [pageId, base] of Object.entries(PAGE_ROUTES)) {
+    if (pathname === base || pathname === base + '/' || new RegExp(`^${base}/[^/]+/?$`).test(pathname)) {
+      return { pageId, projectId: null };
+    }
+  }
+  return { pageId: null, projectId: null };
+}
+// Applies whatever route the URL currently points at — used on boot and on
+// browser back/forward. Never itself pushes a new history entry.
+async function applyCurrentRoute() {
+  const { pageId, projectId } = resolveRoute(window.location.pathname);
+  document.querySelectorAll('.knight-page.active').forEach(p => onKnightPageClose(p.id));
   document.querySelectorAll('.knight-page.active').forEach(p => p.classList.remove('active'));
   closeAllModals();
-  if (e.state?.page && document.getElementById(e.state.page)) {
-    document.getElementById(e.state.page).classList.add('active');
+  if (pageId === 'projectDetailPage' && projectId) {
+    await openProjectDetail(projectId, { pushHistory: false });
+  } else if (pageId && document.getElementById(pageId)) {
+    document.getElementById(pageId).classList.add('active');
+    onKnightPageOpen(pageId);
+  } else if (window.location.pathname !== '/') {
+    // Unknown deep link — fall back to the dashboard rather than a blank page.
+    history.replaceState({}, '', '/');
   }
-});
+}
+window.addEventListener('popstate', () => { if (userState.userId) applyCurrentRoute(); });
 
 // ============================================================
 // KNIGHT SHORTCUTS — real, website-only shortcuts (not OS shortcuts)
@@ -428,7 +584,115 @@ async function acceptFriendRequestUI(requestId) {
     await api(`/api/friend-request/${requestId}/accept`, { method: 'POST' });
     userState.friendRequests = userState.friendRequests.filter(r => r.id !== requestId);
     showToast('Friend added!'); renderUI(); loadCommFriendsUI();
+    if (getActiveKnightPageId() === 'socialPage') loadSocialPageUI();
   } catch (e) { showToast(e.message); }
+}
+
+// ---------- Social & Friends (full page) ----------
+let onlineFriendIds = new Set();
+let socialFriendsCache = [];
+let currentPublicProfile = null;
+async function sendFriendRequestFromSocialPage() {
+  const input = document.getElementById('socialAddFriendInput');
+  const targetId = input.value.trim().toUpperCase();
+  if (!targetId) return;
+  try { await api('/api/friend-request', { method: 'POST', body: { toSocialId: targetId } }); showToast(`Friend request sent to ${targetId}`); input.value = ''; }
+  catch (e) { showToast(e.message); }
+}
+function viewProfileFromSocialPage() {
+  const targetId = document.getElementById('socialAddFriendInput').value.trim().toUpperCase();
+  if (!targetId) { showToast('Enter a Social ID first'); return; }
+  openPublicProfileModal(targetId);
+}
+async function openPublicProfileModal(socialId) {
+  try {
+    const p = await api(`/api/profile/by-social/${encodeURIComponent(socialId)}`);
+    currentPublicProfile = p;
+    document.getElementById('ppUsername').textContent = p.username;
+    document.getElementById('ppRole').textContent = p.role;
+    document.getElementById('ppSocialId').textContent = p.socialId;
+    document.getElementById('ppBio').textContent = p.bio || 'No bio yet.';
+    document.getElementById('ppLevel').textContent = p.level || 1;
+    document.getElementById('ppFollowers').textContent = p.followers || 0;
+    document.getElementById('ppProjects').textContent = p.projects || 0;
+    document.getElementById('ppCommits').textContent = p.commits || 0;
+    document.getElementById('ppAvatar').innerHTML = p.avatar ? `<img src="${p.avatar}" style="width:100%;height:100%;object-fit:cover;">` : '👤';
+    document.getElementById('ppPresenceDot').classList.toggle('online', onlineFriendIds.has(p.userId));
+    const links = document.getElementById('ppLinks');
+    links.innerHTML = [
+      p.github ? `<a href="https://github.com/${p.github.replace(/^@/,'')}" target="_blank" rel="noopener" class="nav-cta" style="padding:5px 12px;font-size:.72rem;">GitHub</a>` : '',
+      p.twitter ? `<a href="https://twitter.com/${p.twitter.replace(/^@/,'')}" target="_blank" rel="noopener" class="nav-cta" style="padding:5px 12px;font-size:.72rem;">Twitter</a>` : ''
+    ].join('');
+    document.getElementById('ppPingBtn').style.display = p.isFriend ? 'inline-flex' : 'none';
+    document.getElementById('ppMessageBtn').style.display = p.isFriend ? 'inline-flex' : 'none';
+    document.getElementById('ppAddFriendBtn').style.display = (!p.isSelf && !p.isFriend) ? 'inline-flex' : 'none';
+    const projList = document.getElementById('ppProjectsList');
+    projList.innerHTML = p.publicProjects.length ? p.publicProjects.map(pr => `
+      <div class="friend-row"><span>${pr.name} <span style="color:var(--text-tertiary); font-size:.72rem;">${pr.category}</span></span><span style="font-size:.72rem; color:var(--accent-gold);">★ ${pr.stars || 0}</span></div>
+    `).join('') : '<p style="color:var(--text-tertiary); font-size:.82rem;">No visible projects.</p>';
+    openModal('publicProfileModal');
+  } catch (e) { showToast(e.message); }
+}
+function sendPingUI() {
+  if (!currentPublicProfile || !socket) return;
+  socket.emit('send_ping', { toUserId: currentPublicProfile.userId });
+  showToast(`👋 Pinged ${currentPublicProfile.username}`);
+}
+function messageFromProfileUI() {
+  if (!currentPublicProfile) return;
+  closeModal('publicProfileModal');
+  openKnightPage('commPage');
+  setTimeout(() => openChatThread(currentPublicProfile.userId, currentPublicProfile.username), 50);
+}
+async function addFriendFromProfileUI() {
+  if (!currentPublicProfile) return;
+  try { await api('/api/friend-request', { method: 'POST', body: { toSocialId: currentPublicProfile.socialId } }); showToast(`Friend request sent to ${currentPublicProfile.username}`); }
+  catch (e) { showToast(e.message); }
+}
+async function loadSocialPageUI() {
+  document.getElementById('socialPageMyId').textContent = userState.socialId || 'KNT-------';
+
+  const reqBox = document.getElementById('socialIncomingRequests');
+  await refreshIncomingRequests();
+  reqBox.innerHTML = '';
+  if (userState.friendRequests.length === 0) {
+    reqBox.innerHTML = '<p style="color:var(--text-tertiary); font-size:.85rem;">No pending requests.</p>';
+  } else {
+    userState.friendRequests.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'notif-item gold unread';
+      row.innerHTML = `<div><div class="notif-title">${r.fromProfile?.username || 'Someone'}</div><div class="notif-desc">wants to connect · ${r.fromProfile?.socialId || ''}</div></div>
+        <button class="nav-cta" style="padding:6px 14px;font-size:.72rem;" onclick="acceptFriendRequestUI('${r.id}')">Accept</button>`;
+      reqBox.appendChild(row);
+    });
+  }
+
+  try {
+    socialFriendsCache = await api('/api/friends');
+    const online = await api('/api/presence/friends').catch(() => []);
+    onlineFriendIds = new Set(online);
+  } catch (e) { document.getElementById('socialFriendsListFull').innerHTML = `<p style="color:var(--accent-coral); font-size:.85rem;">${e.message}</p>`; return; }
+  renderSocialFriendsList();
+}
+function renderSocialFriendsList() {
+  const listBox = document.getElementById('socialFriendsListFull');
+  const query = (document.getElementById('socialFriendSearchInput')?.value || '').trim().toLowerCase();
+  const friends = socialFriendsCache.filter(f => !query ||
+    (f.profile?.username || '').toLowerCase().includes(query) || (f.profile?.socialId || '').toLowerCase().includes(query));
+  listBox.innerHTML = '';
+  if (socialFriendsCache.length === 0) { listBox.innerHTML = '<p style="color:var(--text-tertiary); font-size:.85rem;">No friends yet — send a request above.</p>'; return; }
+  if (friends.length === 0) { listBox.innerHTML = '<p style="color:var(--text-tertiary); font-size:.85rem;">No friends match that search.</p>'; return; }
+  friends.forEach(f => {
+    const row = document.createElement('div');
+    row.className = 'friend-row';
+    const isOnline = onlineFriendIds.has(f.friendId);
+    row.innerHTML = `<span style="cursor:pointer; display:flex; align-items:center; gap:8px;" onclick="openPublicProfileModal('${f.profile?.socialId || ''}')">
+        <span class="presence-dot${isOnline ? ' online' : ''}"></span>
+        ${f.profile?.username || 'Friend'} <span class="social-id-chip" style="margin-left:2px;">${f.profile?.socialId || ''}</span>
+      </span>
+      <button class="nav-cta" style="padding:5px 12px; font-size:.72rem;" onclick="openKnightPage('commPage'); setTimeout(()=>openChatThread('${f.friendId}', '${(f.profile?.username||'Friend').replace(/'/g,"")}'), 50);">Message</button>`;
+    listBox.appendChild(row);
+  });
 }
 
 // ---------- Profile edit ----------
@@ -474,56 +738,300 @@ function signOutUI() {
   location.reload();
 }
 
+// ---------- Settings (full page) ----------
+function loadSettingsPageUI() {
+  const sel = document.getElementById('defaultPageSelect');
+  if (sel) sel.value = userState.defaultPage || '';
+
+  const soundToggle = document.getElementById('settingsErrorSoundToggle');
+  const termToggle = document.getElementById('termAudioToggle');
+  const soundPref = localStorage.getItem('knight_error_sound') !== 'false';
+  if (soundToggle) soundToggle.checked = soundPref;
+  if (termToggle) termToggle.checked = soundPref;
+
+  const compactToggle = document.getElementById('settingsCompactToggle');
+  if (compactToggle) compactToggle.checked = document.body.classList.contains('compact-dash');
+
+  loadPasskeysUI();
+  loadCameraSettingsUI();
+
+  const social = userState.socialSettings || {};
+  const allowReq = document.getElementById('socialAllowRequestsToggle');
+  const autoAccept = document.getElementById('socialAutoAcceptToggle');
+  const showId = document.getElementById('socialShowIdToggle');
+  if (allowReq) allowReq.checked = social.allowFriendRequests !== false;
+  if (autoAccept) autoAccept.checked = !!social.autoAcceptFriends;
+  if (showId) showId.checked = social.showSocialIdOnCard !== false;
+
+  const reduceMotion = document.getElementById('siteReduceMotionToggle');
+  const notifyToggle = document.getElementById('siteNotifyToggle');
+  if (reduceMotion) reduceMotion.checked = localStorage.getItem('knight_reduce_motion') === 'true';
+  if (notifyToggle) notifyToggle.checked = localStorage.getItem('knight_desktop_notify') === 'true' && Notification?.permission === 'granted';
+}
+document.getElementById('defaultPageSelect')?.addEventListener('change', async (e) => {
+  const value = e.target.value;
+  userState.defaultPage = value;
+  try { await api('/api/profile/me', { method: 'PUT', body: { defaultPage: value } }); showToast(value ? 'Default page saved' : 'Reset to Dashboard'); }
+  catch (err) { showToast(err.message); }
+});
+document.getElementById('settingsErrorSoundToggle')?.addEventListener('change', (e) => {
+  localStorage.setItem('knight_error_sound', e.target.checked);
+  const termToggle = document.getElementById('termAudioToggle');
+  if (termToggle) termToggle.checked = e.target.checked;
+});
+document.getElementById('settingsCompactToggle')?.addEventListener('change', (e) => {
+  document.body.classList.toggle('compact-dash', e.target.checked);
+  localStorage.setItem('knight_compact_dash', e.target.checked);
+});
+
+// ---------- Security: Passkeys (real WebAuthn ceremony) ----------
+async function loadPasskeysUI() {
+  const list = document.getElementById('passkeysList');
+  if (!list) return;
+  try {
+    const keys = await api('/api/auth/passkeys');
+    list.innerHTML = keys.length ? keys.map(k => `
+      <div class="friend-row">
+        <span>🔑 ${k.nickname} <span style="color:var(--text-tertiary); font-size:.72rem;">· added ${new Date(k.createdAt).toLocaleDateString()}</span></span>
+        <button class="nav-cta" style="padding:5px 12px; font-size:.72rem; color:var(--accent-coral);" onclick="deletePasskeyUI('${k.id}')">Remove</button>
+      </div>`).join('') : '<p style="color:var(--text-tertiary); font-size:.85rem;">No passkeys yet — add one below for one-tap, passwordless sign-in.</p>';
+  } catch (e) { list.innerHTML = `<p style="color:var(--accent-coral); font-size:.85rem;">${e.message}</p>`; }
+}
+async function addPasskeyUI() {
+  if (!window.SimpleWebAuthnBrowser) { showToast('Passkey library failed to load — check your connection'); return; }
+  try {
+    const options = await api('/api/auth/passkey/register-options', { method: 'POST' });
+    const credential = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON: options });
+    const nickname = prompt('Name this passkey (e.g. "MacBook Touch ID")', 'My Passkey') || 'Passkey';
+    await api('/api/auth/passkey/register-verify', { method: 'POST', body: { credential, nickname } });
+    showToast('Passkey added');
+    loadPasskeysUI();
+  } catch (e) { showToast(e.name === 'NotAllowedError' ? 'Passkey setup cancelled' : e.message); }
+}
+async function deletePasskeyUI(id) {
+  try { await api('/api/auth/passkeys/' + encodeURIComponent(id), { method: 'DELETE' }); showToast('Passkey removed'); loadPasskeysUI(); }
+  catch (e) { showToast(e.message); }
+}
+document.getElementById('passkeyLoginBtn')?.addEventListener('click', async () => {
+  if (!window.SimpleWebAuthnBrowser) { showToast('Passkey library failed to load — check your connection'); return; }
+  const authError = document.getElementById('authError');
+  authError.style.display = 'none';
+  try {
+    const { attemptId, options } = await api('/api/auth/passkey/login-options', { method: 'POST' });
+    const credential = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON: options });
+    const data = await api('/api/auth/passkey/login-verify', { method: 'POST', body: { attemptId, credential } });
+    authToken = data.token;
+    localStorage.setItem('knight_token', authToken);
+    applyProfileToState(data.profile);
+    showToast('Signed in with passkey');
+    await enterDashboard();
+  } catch (e) {
+    authError.textContent = e.name === 'NotAllowedError' ? 'Passkey sign-in cancelled' : e.message;
+    authError.style.display = 'block';
+  }
+});
+
+// ---------- Camera Settings (real getUserMedia + device enumeration) ----------
+let camPreviewStream = null;
+async function loadCameraSettingsUI() {
+  const camSel = document.getElementById('camDeviceSelect');
+  if (!camSel) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === 'videoinput');
+    const mics = devices.filter(d => d.kind === 'audioinput');
+    const micSel = document.getElementById('micDeviceSelect');
+    camSel.innerHTML = cams.length ? cams.map((d, i) => `<option value="${d.deviceId}">${d.label || 'Camera ' + (i + 1)}</option>`).join('') : '<option value="">No camera found</option>';
+    micSel.innerHTML = mics.length ? mics.map((d, i) => `<option value="${d.deviceId}">${d.label || 'Microphone ' + (i + 1)}</option>`).join('') : '<option value="">No microphone found</option>';
+    const saved = userState.camSettings || {};
+    if (saved.deviceId && cams.find(c => c.deviceId === saved.deviceId)) camSel.value = saved.deviceId;
+    if (saved.micId && mics.find(m => m.deviceId === saved.micId)) micSel.value = saved.micId;
+    document.getElementById('camMirrorToggle').checked = saved.mirror !== false;
+    document.getElementById('camPermissionHint').textContent = cams.some(c => c.label)
+      ? 'Camera & microphone access granted.'
+      : 'Device labels appear after you grant permission.';
+  } catch (e) { /* enumerateDevices can fail pre-permission on some browsers — non-fatal */ }
+}
+async function requestCameraAccessUI() {
+  try {
+    camPreviewStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const video = document.getElementById('camPreview');
+    video.srcObject = camPreviewStream;
+    video.style.display = 'block';
+    video.style.transform = document.getElementById('camMirrorToggle').checked ? 'scaleX(-1)' : 'none';
+    showToast('Camera access granted');
+    await loadCameraSettingsUI();
+  } catch (e) { showToast('Camera permission denied: ' + e.message); }
+}
+function stopCameraPreviewUI() {
+  const video = document.getElementById('camPreview');
+  if (camPreviewStream) { camPreviewStream.getTracks().forEach(t => t.stop()); camPreviewStream = null; }
+  video.srcObject = null;
+  video.style.display = 'none';
+}
+document.getElementById('camMirrorToggle')?.addEventListener('change', (e) => {
+  const video = document.getElementById('camPreview');
+  if (video) video.style.transform = e.target.checked ? 'scaleX(-1)' : 'none';
+});
+async function saveCameraSettingsUI() {
+  const camSettings = {
+    deviceId: document.getElementById('camDeviceSelect').value,
+    micId: document.getElementById('micDeviceSelect').value,
+    mirror: document.getElementById('camMirrorToggle').checked
+  };
+  userState.camSettings = camSettings;
+  try { await api('/api/profile/me', { method: 'PUT', body: { camSettings } }); showToast('Camera settings saved'); }
+  catch (e) { showToast(e.message); }
+}
+
+// ---------- Social Settings ----------
+async function saveSocialSettingsUI() {
+  const socialSettings = {
+    allowFriendRequests: document.getElementById('socialAllowRequestsToggle').checked,
+    autoAcceptFriends: document.getElementById('socialAutoAcceptToggle').checked,
+    showSocialIdOnCard: document.getElementById('socialShowIdToggle').checked
+  };
+  userState.socialSettings = socialSettings;
+  const chip = document.getElementById('headerSocialIdChip');
+  if (chip) chip.style.display = socialSettings.showSocialIdOnCard ? 'inline-block' : 'none';
+  try { await api('/api/profile/me', { method: 'PUT', body: { socialSettings } }); showToast('Social settings saved'); }
+  catch (e) { showToast(e.message); }
+}
+['socialAllowRequestsToggle', 'socialAutoAcceptToggle', 'socialShowIdToggle'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', saveSocialSettingsUI);
+});
+
+// ---------- Site Settings ----------
+function applyReduceMotion(on) {
+  document.body.classList.toggle('reduce-motion', on);
+}
+document.getElementById('siteReduceMotionToggle')?.addEventListener('change', (e) => {
+  localStorage.setItem('knight_reduce_motion', e.target.checked);
+  applyReduceMotion(e.target.checked);
+});
+document.getElementById('siteNotifyToggle')?.addEventListener('change', async (e) => {
+  if (!e.target.checked) { localStorage.setItem('knight_desktop_notify', 'false'); return; }
+  if (!('Notification' in window)) { showToast('This browser does not support notifications'); e.target.checked = false; return; }
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') { localStorage.setItem('knight_desktop_notify', 'true'); showToast('Desktop notifications enabled'); new Notification('Knight', { body: 'You\'ll be notified here from now on.' }); }
+  else { e.target.checked = false; localStorage.setItem('knight_desktop_notify', 'false'); showToast('Notification permission denied'); }
+});
+function maybeFireDesktopNotification(title, body) {
+  if (localStorage.getItem('knight_desktop_notify') === 'true' && Notification?.permission === 'granted' && document.hidden) {
+    new Notification(title, { body });
+  }
+}
+function resetLocalPrefsUI() {
+  if (!confirm('Reset device, sound, compact-mode and motion preferences on this device?')) return;
+  ['knight_device', 'knight_error_sound', 'knight_compact_dash', 'knight_reduce_motion', 'knight_desktop_notify'].forEach(k => localStorage.removeItem(k));
+  showToast('Local preferences reset — reloading…');
+  setTimeout(() => location.reload(), 700);
+}
+
 // ============================================================
 // PROJECTS MANAGER (real, backend-persisted)
 // ============================================================
 let currentProjectId = null;
+let currentProjectRole = null;
+let currentEditorFile = null; // { id, filename, language, content } — null while editing a brand-new file
 function projectCardEl(p) {
   const div = document.createElement('div');
   div.className = 'dash-card theme-blue';
   div.tabIndex = 0;
   div.onclick = () => openProjectDetail(p.id);
+  const roleLabel = p.myRole === 'owner' ? 'Owner' : (p.myRole ? p.myRole[0].toUpperCase() + p.myRole.slice(1) : '');
+  const visIcon = { public: '🌐', private: '🔒', friends: '👥', selected: '🎯' }[p.visibility] || '🌐';
+  const tags = (p.tags || []).slice(0, 3).map(t => `<span class="social-id-chip" style="margin-right:4px; font-size:.62rem;">${t}</span>`).join('');
+  const distance = typeof p.distanceKm === 'number' ? `<span style="color:var(--text-tertiary); font-size:.68rem;"> · ${p.distanceKm.toFixed(1)} km away</span>` : '';
   div.innerHTML = `
     <div class="icon-box"><svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
-    <h3>${p.name}</h3>
+    <h3>${p.name} <span style="font-size:.7rem; color:var(--text-tertiary); font-weight:400;">${visIcon} v${p.version || 1}</span></h3>
     <p>${p.description || 'No description yet.'}</p>
-    <div class="enter-btn">★ ${p.stars || 0} &nbsp;·&nbsp; ${p.category}</div>
+    <div style="margin:4px 0;">${tags}</div>
+    <div class="enter-btn" style="display:flex; align-items:center; justify-content:space-between;">
+      <span><span class="star-toggle${p.starredByMe ? ' starred' : ''}" data-project-id="${p.id}" onclick="toggleStarUI(event, '${p.id}')">★</span> <span class="star-count">${p.stars || 0}</span> &nbsp;·&nbsp; ${p.category}${roleLabel ? ' &nbsp;·&nbsp; ' + roleLabel : ''}${distance}</span>
+    </div>
   `;
   return div;
+}
+async function toggleStarUI(evt, projectId) {
+  evt.stopPropagation();
+  const starEl = evt.target;
+  try {
+    const res = await api(`/api/projects/${projectId}/star`, { method: 'POST' });
+    starEl.classList.toggle('starred', res.starred);
+    starEl.parentElement.querySelector('.star-count').textContent = res.count;
+  } catch (e) { showToast(e.message); }
 }
 async function loadMyProjectsUI() {
   const grid = document.getElementById('myProjectsGrid');
   if (!grid) return;
   grid.innerHTML = '<p style="color:var(--text-tertiary);">Loading…</p>';
   try {
-    const all = await api('/api/projects');
-    const mine = all.filter(p => p.ownerId === userState.userId);
+    const mine = await api('/api/projects/mine');
     grid.innerHTML = '';
     if (mine.length === 0) { grid.innerHTML = '<p style="color:var(--text-tertiary);">No projects yet — create one above.</p>'; return; }
     mine.forEach(p => grid.appendChild(projectCardEl(p)));
   } catch (e) { grid.innerHTML = `<p style="color:var(--accent-coral);">${e.message}</p>`; }
 }
+let newProjCoords = null;
+function attachLocationUI() {
+  if (!navigator.geolocation) { showToast('Geolocation not supported in this browser'); return; }
+  document.getElementById('newProjLocationStatus').textContent = 'Locating…';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => { newProjCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; document.getElementById('newProjLocationStatus').textContent = '📍 Location attached'; },
+    (err) => { document.getElementById('newProjLocationStatus').textContent = 'Could not get location: ' + err.message; },
+    { timeout: 8000 }
+  );
+}
 async function createProjectUI() {
   const name = document.getElementById('newProjName').value.trim();
   if (!name) { showToast('Project needs a name'); return; }
+  const tags = document.getElementById('newProjTags').value.split(',').map(t => t.trim()).filter(Boolean);
+  const visibility = document.getElementById('newProjVisibility').value;
+  const visibleToSocialIds = document.getElementById('newProjVisibleTo').value.split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+  const locationLabel = document.getElementById('newProjLocationLabel').value.trim();
+  const location = newProjCoords ? { ...newProjCoords, label: locationLabel } : null;
   try {
     await api('/api/projects', { method: 'POST', body: {
-      name, description: document.getElementById('newProjDesc').value, category: document.getElementById('newProjCategory').value
+      name, description: document.getElementById('newProjDesc').value,
+      category: document.getElementById('newProjCategory').value,
+      tags, visibility, visibleToSocialIds, location
     }});
-    closeModal('newProjectModal'); showToast('Project created'); loadMyProjectsUI();
+    closeModal('newProjectModal'); showToast('Project created');
+    newProjCoords = null; document.getElementById('newProjLocationStatus').textContent = '';
+    loadMyProjectsUI();
+    if (getActiveKnightPageId() === 'studioPage') loadStudioUI();
   } catch (e) { showToast(e.message); }
 }
-async function openProjectDetail(projectId) {
+async function openProjectDetail(projectId, opts = {}) {
   currentProjectId = projectId;
   try {
     const p = await api(`/api/projects/${projectId}`);
+    currentProjectRole = p.myRole; // 'owner' | 'editor' | 'contributor' | 'viewer' | null
     document.getElementById('projectDetailTitle').textContent = p.name;
     document.getElementById('projectDetailDesc').textContent = p.description || '';
+    document.getElementById('projectDetailTags').innerHTML = (p.tags || [])
+      .map(t => `<span class="social-id-chip" style="margin-right:6px;">${t}</span>`).join('') +
+      `<span class="social-id-chip" style="margin-right:6px;">${{ public: '🌐 Public', private: '🔒 Private', friends: '👥 Friends only', selected: '🎯 Selected friends' }[p.visibility] || '🌐 Public'}</span>`;
+    const badge = document.getElementById('projectDetailRoleBadge');
+    badge.textContent = currentProjectRole || 'no access';
+
     document.getElementById('deployedUrlInput').value = p.deployedUrl || '';
+    // Role gating on the page's action rows — real enforcement lives server-side
+    // too, this just avoids showing controls that would just 403.
+    document.getElementById('addFileRow').style.display = ['owner', 'editor'].includes(currentProjectRole) ? 'flex' : 'none';
+    document.getElementById('cutVersionRow').style.display = currentProjectRole === 'owner' ? 'flex' : 'none';
+    document.getElementById('inviteMemberRow').style.display = currentProjectRole === 'owner' ? 'flex' : 'none';
+    document.getElementById('joinCodeSectionLabel').style.display = currentProjectRole === 'owner' ? 'block' : 'none';
+    document.getElementById('joinCodeSection').style.display = currentProjectRole === 'owner' ? 'block' : 'none';
+    if (currentProjectRole === 'owner') loadJoinCodeUI(projectId);
+
     await renderProjectFiles(projectId);
     await renderProjectMembers(projectId);
     await renderChangeRequests(projectId);
-    openKnightPage('projectDetailPage');
+    await renderVersions(projectId);
+    openKnightPage('projectDetailPage', { pushHistory: opts.pushHistory !== false, path: pathForProject(projectId) });
   } catch (e) { showToast(e.message); }
 }
 async function renderProjectFiles(projectId) {
@@ -537,7 +1045,7 @@ async function renderProjectFiles(projectId) {
       const row = document.createElement('div');
       row.className = 'friend-row';
       row.innerHTML = `<span class="font-mono" style="font-size:.85rem;">${f.filename}</span>
-        <button class="nav-cta" style="font-size:.72rem; padding:5px 10px;" onclick="viewProjectFile('${f.filename.replace(/'/g,"")}')">Open</button>`;
+        <button class="nav-cta" style="font-size:.72rem; padding:5px 10px;" onclick='openFileEditorUI(${JSON.stringify(f)})'>${currentProjectRole === 'viewer' ? 'View' : 'Open'}</button>`;
       list.appendChild(row);
     });
   } catch (e) { list.innerHTML = `<p style="color:var(--accent-coral);">${e.message}</p>`; }
@@ -552,10 +1060,94 @@ async function addProjectFileUI() {
     renderProjectFiles(currentProjectId);
   } catch (e) { showToast(e.message); }
 }
-function viewProjectFile(filename) {
-  openKnightPage('terminalPage');
-  showToast(`Opened ${filename} in Terminal (edit + Run)`);
+
+// ---------- File editor: role-aware (owner/editor write directly, contributor proposes, viewer read-only) ----------
+function openFileEditorUI(file) {
+  currentEditorFile = file;
+  document.getElementById('fileEditorTitle').textContent = file.filename;
+  document.getElementById('fileEditorContent').value = file.content || '';
+  document.getElementById('fileEditorContent').readOnly = currentProjectRole === 'viewer';
+  const saveBtn = document.getElementById('fileEditorSaveBtn');
+  const deleteBtn = document.getElementById('fileEditorDeleteBtn');
+  const hint = document.getElementById('fileEditorRoleHint');
+  if (currentProjectRole === 'viewer') {
+    saveBtn.style.display = 'none';
+    hint.textContent = "You have Viewer access — read only.";
+  } else if (currentProjectRole === 'contributor') {
+    saveBtn.style.display = 'block'; saveBtn.textContent = 'Propose Change';
+    hint.textContent = "Your edit becomes a Change Request — nothing changes until the owner approves it.";
+  } else {
+    saveBtn.style.display = 'block'; saveBtn.textContent = 'Save';
+    hint.textContent = currentProjectRole === 'owner' ? 'You can edit and delete this file directly.' : 'You can edit this file directly (deleting is owner-only).';
+  }
+  deleteBtn.style.display = currentProjectRole === 'owner' ? 'inline-block' : 'none';
+  openModal('fileEditorModal');
 }
+async function saveFileEditorUI() {
+  const content = document.getElementById('fileEditorContent').value;
+  try {
+    if (currentProjectRole === 'contributor') {
+      const summary = prompt('Briefly describe this change (shown to the owner):', '') || '';
+      await api(`/api/projects/${currentProjectId}/change-requests`, { method: 'POST', body: {
+        fileId: currentEditorFile.id, filename: currentEditorFile.filename, language: currentEditorFile.language,
+        summary, proposedContent: content
+      }});
+      showToast('Change proposed — waiting on owner approval');
+    } else {
+      await api(`/api/projects/${currentProjectId}/files`, { method: 'POST', body: {
+        filename: currentEditorFile.filename, content, language: currentEditorFile.language
+      }});
+      showToast('Saved');
+      renderProjectFiles(currentProjectId);
+    }
+    closeModal('fileEditorModal');
+  } catch (e) { showToast(e.message); }
+}
+async function deleteFileEditorUI() {
+  if (!confirm(`Delete ${currentEditorFile.filename}? This can't be undone.`)) return;
+  try {
+    await api(`/api/projects/${currentProjectId}/files/${currentEditorFile.id}`, { method: 'DELETE' });
+    showToast('File deleted');
+    closeModal('fileEditorModal');
+    renderProjectFiles(currentProjectId);
+  } catch (e) { showToast(e.message); }
+}
+
+// ---------- Versions ----------
+async function renderVersions(projectId) {
+  const list = document.getElementById('versionsList');
+  list.innerHTML = 'Loading…';
+  try {
+    const versions = await api(`/api/projects/${projectId}/versions`);
+    list.innerHTML = '';
+    versions.slice().reverse().forEach(v => {
+      const row = document.createElement('div');
+      row.className = 'friend-row';
+      row.innerHTML = `<span>v${v.version} <span style="color:var(--text-tertiary); font-size:.75rem;">· ${v.note} · ${v.fileCount} file(s) · ${new Date(v.createdAt).toLocaleDateString()}</span></span>
+        ${currentProjectRole === 'owner' && versions.length > 1 ? `<button class="nav-cta" style="font-size:.7rem; padding:4px 10px;" onclick="restoreVersionUI(${v.version})">Restore</button>` : ''}`;
+      list.appendChild(row);
+    });
+  } catch (e) { list.innerHTML = `<p style="color:var(--accent-coral);">${e.message}</p>`; }
+}
+async function cutVersionUI() {
+  const note = document.getElementById('versionNoteInput').value.trim();
+  try {
+    await api(`/api/projects/${currentProjectId}/versions`, { method: 'POST', body: { note } });
+    document.getElementById('versionNoteInput').value = '';
+    showToast('New version cut');
+    renderVersions(currentProjectId);
+    loadMyProjectsUI();
+  } catch (e) { showToast(e.message); }
+}
+async function restoreVersionUI(version) {
+  if (!confirm(`Restore all files to v${version}? Current file contents will be overwritten (your version history is unaffected).`)) return;
+  try {
+    await api(`/api/projects/${currentProjectId}/versions/${version}/restore`, { method: 'POST' });
+    showToast(`Restored to v${version}`);
+    renderProjectFiles(currentProjectId);
+  } catch (e) { showToast(e.message); }
+}
+
 async function renderProjectMembers(projectId) {
   const list = document.getElementById('projectMembersList');
   list.innerHTML = 'Loading…';
@@ -582,24 +1174,42 @@ async function addProjectMemberUI() {
     renderProjectMembers(currentProjectId);
   } catch (e) { showToast(e.message); }
 }
+function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 async function renderChangeRequests(projectId) {
   const list = document.getElementById('changeRequestsList');
   list.innerHTML = 'Loading…';
   try {
     const reqs = await api(`/api/projects/${projectId}/change-requests`);
     list.innerHTML = '';
-    if (reqs.length === 0) { list.innerHTML = '<p style="color:var(--text-tertiary);">No pending change requests.</p>'; return; }
+    if (reqs.length === 0) { list.innerHTML = '<p style="color:var(--text-tertiary);">No change requests yet.</p>'; return; }
     reqs.forEach(r => {
       const row = document.createElement('div');
       row.className = 'notif-item gold';
-      row.innerHTML = `<div><div class="notif-title">${r.profile?.username || 'Contributor'} requested a change</div><div class="notif-desc">${r.summary || ''}</div><div class="notif-time">${r.status}</div></div>
-        ${r.status === 'pending' ? `<div style="display:flex; gap:6px;"><button class="nav-cta" style="padding:4px 10px;font-size:.7rem;" onclick="resolveChangeRequestUI('${r.id}','approved')">Approve</button><button class="nav-cta" style="padding:4px 10px;font-size:.7rem;color:var(--accent-coral);" onclick="resolveChangeRequestUI('${r.id}','rejected')">Reject</button></div>` : ''}`;
+      row.style.flexDirection = 'column'; row.style.alignItems = 'stretch';
+      const diffId = 'diff_' + r.id;
+      row.innerHTML = `
+        <div style="display:flex; justify-content:space-between; width:100%; gap:10px;">
+          <div><div class="notif-title">${r.profile?.username || 'Contributor'} → <span class="font-mono">${r.filename}</span></div><div class="notif-desc">${escapeHtml(r.summary) || '(no summary)'}</div><div class="notif-time">${r.status}${r.resolvedAt ? ' · ' + new Date(r.resolvedAt).toLocaleDateString() : ''}</div></div>
+          <div style="display:flex; gap:6px; align-items:flex-start; flex-shrink:0;">
+            <button class="nav-cta" style="padding:4px 10px;font-size:.7rem;" onclick="document.getElementById('${diffId}').classList.toggle('active-diff')">Preview</button>
+            ${r.status === 'pending' && currentProjectRole === 'owner' ? `<button class="nav-cta" style="padding:4px 10px;font-size:.7rem;" onclick="resolveChangeRequestUI('${r.id}','approved')">Approve</button><button class="nav-cta" style="padding:4px 10px;font-size:.7rem;color:var(--accent-coral);" onclick="resolveChangeRequestUI('${r.id}','rejected')">Reject</button>` : ''}
+          </div>
+        </div>
+        <div id="${diffId}" class="cr-diff">
+          <div><div class="cr-diff-label">Before</div><pre>${escapeHtml(r.originalContent) || '(empty)'}</pre></div>
+          <div><div class="cr-diff-label">Proposed</div><pre>${escapeHtml(r.proposedContent) || '(empty)'}</pre></div>
+        </div>`;
       list.appendChild(row);
     });
   } catch (e) { list.innerHTML = `<p style="color:var(--accent-coral);">${e.message}</p>`; }
 }
 async function resolveChangeRequestUI(id, status) {
-  try { await api(`/api/change-requests/${id}/resolve`, { method: 'POST', body: { status } }); showToast(`Request ${status}`); renderChangeRequests(currentProjectId); }
+  try {
+    await api(`/api/change-requests/${id}/resolve`, { method: 'POST', body: { status } });
+    showToast(`Request ${status}`);
+    renderChangeRequests(currentProjectId);
+    renderProjectFiles(currentProjectId);
+  }
   catch (e) { showToast(e.message); }
 }
 async function saveDeployedUrlUI() {
@@ -609,27 +1219,133 @@ async function saveDeployedUrlUI() {
   catch (e) { showToast(e.message); }
 }
 
+// ---------- Invite Passkey (join code) ----------
+async function loadJoinCodeUI(projectId) {
+  try {
+    const jc = await api(`/api/projects/${projectId}/join-code`);
+    document.getElementById('joinCodeDisplay').value = jc.code;
+    document.getElementById('joinCodeEnabledToggle').checked = jc.enabled;
+    document.getElementById('joinCodeRoleSelect').value = jc.role;
+  } catch (e) { showToast(e.message); }
+}
+function copyJoinCodeUI() {
+  const val = document.getElementById('joinCodeDisplay').value;
+  navigator.clipboard?.writeText(val).then(() => showToast('Passkey copied')).catch(() => showToast('Copy failed — select and copy manually'));
+}
+async function regenerateJoinCodeUI() {
+  if (!confirm('Regenerate the passkey? The old one will stop working immediately.')) return;
+  try { const jc = await api(`/api/projects/${currentProjectId}/join-code/regenerate`, { method: 'POST' }); document.getElementById('joinCodeDisplay').value = jc.code; showToast('New passkey generated'); }
+  catch (e) { showToast(e.message); }
+}
+async function saveJoinCodeSettingsUI() {
+  const enabled = document.getElementById('joinCodeEnabledToggle').checked;
+  const role = document.getElementById('joinCodeRoleSelect').value;
+  try { await api(`/api/projects/${currentProjectId}/join-code`, { method: 'PUT', body: { enabled, role } }); showToast('Passkey settings saved'); }
+  catch (e) { showToast(e.message); }
+}
+async function joinProjectByCodeUI() {
+  const code = document.getElementById('joinProjectCodeInput').value.trim();
+  if (!code) return;
+  try {
+    const res = await api('/api/projects/join', { method: 'POST', body: { code } });
+    document.getElementById('joinProjectCodeInput').value = '';
+    showToast(res.alreadyMember ? `Already a member of ${res.project.name}` : `Joined ${res.project.name} as ${res.role}`);
+    loadMyProjectsUI();
+  } catch (e) { showToast(e.message); }
+}
+
 // ============================================================
 // STUDIO
 // ============================================================
+// ---------- Studio: multi-tab discovery (Categories / Trending / Yours / Socials / Near You) ----------
+let studioActiveTab = 'categories';
+let studioActiveCategory = '';
+const STUDIO_CATEGORIES = ['General', 'Web', 'Game', 'AI/ML', 'Tool', 'Mobile'];
+let studioNearCoords = null;
+
+function setStudioTab(tab) {
+  studioActiveTab = tab;
+  document.querySelectorAll('.studio-tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+  document.getElementById('studioCategoryPills').style.display = tab === 'categories' ? 'flex' : 'none';
+  document.getElementById('studioSortRow').style.display = (tab === 'categories' || tab === 'socials') ? 'flex' : 'none';
+  loadStudioUI();
+}
+function renderStudioCategoryPills() {
+  const box = document.getElementById('studioCategoryPills');
+  box.innerHTML = ['All', ...STUDIO_CATEGORIES].map(c => {
+    const val = c === 'All' ? '' : c;
+    return `<button class="studio-category-pill${studioActiveCategory === val ? ' active' : ''}" onclick="setStudioCategory('${val}')">${c}</button>`;
+  }).join('');
+}
+function setStudioCategory(cat) {
+  studioActiveCategory = cat;
+  renderStudioCategoryPills();
+  loadStudioUI();
+}
+function startVoiceSearchUI() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) { showToast('Voice search is not supported in this browser'); return; }
+  const btn = document.getElementById('studioMicBtn');
+  const rec = new Recognition();
+  rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  btn.classList.add('listening');
+  rec.onresult = (e) => {
+    const text = e.results[0][0].transcript;
+    document.getElementById('studioSearchInput').value = text;
+    loadStudioUI();
+  };
+  rec.onerror = () => showToast('Could not hear that — try again');
+  rec.onend = () => btn.classList.remove('listening');
+  rec.start();
+}
 async function loadStudioUI() {
   const grid = document.getElementById('studioGrid');
   if (!grid) return;
   const search = document.getElementById('studioSearchInput')?.value || '';
-  const category = document.getElementById('studioCategoryFilter')?.value || '';
   const order = document.getElementById('studioSortSelect')?.value || 'stars';
+  const hint = document.getElementById('studioEmptyHint');
+  hint.style.display = 'none';
   grid.innerHTML = '<p style="color:var(--text-tertiary);">Loading…</p>';
   try {
-    const qs = new URLSearchParams({ search, category, order }).toString();
-    const projects = await api(`/api/projects?${qs}`);
+    let projects = [];
+    if (studioActiveTab === 'categories') {
+      const qs = new URLSearchParams({ search, category: studioActiveCategory, order }).toString();
+      projects = await api(`/api/projects?${qs}`);
+    } else if (studioActiveTab === 'trending') {
+      projects = await api('/api/projects/trending');
+      if (search) projects = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+    } else if (studioActiveTab === 'yours') {
+      projects = await api('/api/projects/mine');
+      if (search) projects = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+    } else if (studioActiveTab === 'socials') {
+      projects = await api('/api/projects/socials');
+      if (order === 'stars') projects.sort((a, b) => b.stars - a.stars);
+      if (search) projects = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+      if (projects.length === 0) { hint.textContent = "No public projects from your friends yet — projects need to be Public or Friends-visible to show up here."; hint.style.display = 'block'; }
+    } else if (studioActiveTab === 'near') {
+      if (!studioNearCoords) {
+        grid.innerHTML = '';
+        hint.textContent = 'Finding your location…'; hint.style.display = 'block';
+        if (!navigator.geolocation) { hint.textContent = 'Geolocation is not supported in this browser.'; return; }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { studioNearCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; loadStudioUI(); },
+          (err) => { hint.textContent = 'Could not get your location: ' + err.message; },
+          { timeout: 8000 }
+        );
+        return;
+      }
+      projects = await api(`/api/projects/near?lat=${studioNearCoords.lat}&lng=${studioNearCoords.lng}&radius=300`);
+      if (search) projects = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+      if (projects.length === 0) { hint.textContent = "No projects with a location set nearby yet — project owners can attach a location when creating a project."; hint.style.display = 'block'; }
+    }
     grid.innerHTML = '';
-    if (projects.length === 0) { grid.innerHTML = '<p style="color:var(--text-tertiary);">No public projects found yet.</p>'; return; }
+    if (projects.length === 0 && hint.style.display !== 'block') { grid.innerHTML = '<p style="color:var(--text-tertiary);">No public projects found yet.</p>'; return; }
     projects.forEach(p => grid.appendChild(projectCardEl(p)));
   } catch (e) { grid.innerHTML = `<p style="color:var(--accent-coral);">${e.message}</p>`; }
 }
 document.getElementById('studioSearchInput')?.addEventListener('input', () => loadStudioUI());
-document.getElementById('studioCategoryFilter')?.addEventListener('change', () => loadStudioUI());
 document.getElementById('studioSortSelect')?.addEventListener('change', () => loadStudioUI());
+renderStudioCategoryPills();
 
 // ============================================================
 // TERMINAL — real code execution via the public Piston API
@@ -713,7 +1429,8 @@ async function loadCommFriendsUI() {
     friends.forEach(f => {
       const row = document.createElement('div');
       row.className = 'friend-row'; row.style.cursor = 'pointer';
-      row.innerHTML = `<span>${f.profile?.username || 'Friend'}</span><span class="social-id-chip">${f.profile?.socialId || ''}</span>`;
+      const isOnline = onlineFriendIds.has(f.friendId);
+      row.innerHTML = `<span style="display:flex; align-items:center; gap:8px;"><span class="presence-dot${isOnline ? ' online' : ''}"></span>${f.profile?.username || 'Friend'}</span><span class="social-id-chip">${f.profile?.socialId || ''}</span>`;
       row.onclick = () => openChatThread(f.friendId, f.profile?.username || 'Friend');
       list.appendChild(row);
     });
@@ -746,6 +1463,120 @@ function sendChatMessageUI() {
   if (!body || !activeChatFriend || !socket) return;
   socket.emit('send_message', { toUserId: activeChatFriend, body });
   input.value = '';
+}
+
+// ============================================================
+// GAME BOOSTER — real browser-exposed hardware/network readouts
+// (no fake numbers; anything the browser can't see says so)
+// ============================================================
+let fpsMeterHandle = null;
+function metricCard(label, value, iconPath, theme='blue') {
+  const div = document.createElement('div');
+  div.className = `dash-card theme-${theme}`;
+  div.style.cursor = 'default';
+  div.innerHTML = `<div class="icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${iconPath}</svg></div>
+    <h3 style="font-size:1rem;">${label}</h3>
+    <p id="metric-${label.replace(/\s+/g,'-')}" style="font-size:1.3rem; font-weight:700; color:var(--text-primary);">${value}</p>`;
+  return div;
+}
+async function loadGameBoosterUI() {
+  const grid = document.getElementById('gameBoosterGrid');
+  const tips = document.getElementById('gameBoosterTips');
+  grid.innerHTML = '';
+  tips.innerHTML = '';
+  const cpuIcon = '<rect x="6" y="6" width="12" height="12" rx="1"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>';
+  const memIcon = '<rect x="3" y="7" width="18" height="10" rx="1"/><path d="M7 7v10M11 7v10M15 7v10"/>';
+  const netIcon = '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>';
+  const battIcon = '<rect x="1" y="7" width="18" height="10" rx="2"/><line x1="23" y1="11" x2="23" y2="13"/>';
+  const fpsIcon = '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>';
+
+  grid.appendChild(metricCard('Logical CPU cores', navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 'Not exposed', cpuIcon, 'orange'));
+  grid.appendChild(metricCard('Device memory', navigator.deviceMemory ? `~${navigator.deviceMemory} GB` : 'Not exposed by this browser', memIcon, 'blue'));
+
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  grid.appendChild(metricCard('Network', conn ? `${conn.effectiveType} · ${conn.downlink}Mbps · ${conn.rtt}ms RTT` : 'Not exposed by this browser', netIcon, 'blue'));
+
+  grid.appendChild(metricCard('Live FPS', 'Measuring…', fpsIcon, 'orange'));
+  startFpsMeter();
+
+  if (navigator.getBattery) {
+    try {
+      const battery = await navigator.getBattery();
+      const updateBatt = () => {
+        const el = document.getElementById('metric-Battery');
+        if (el) el.textContent = `${Math.round(battery.level*100)}% ${battery.charging ? '(charging)' : ''}`;
+      };
+      grid.appendChild(metricCard('Battery', `${Math.round(battery.level*100)}%${battery.charging ? ' (charging)' : ''}`, battIcon, 'orange'));
+      battery.addEventListener('levelchange', updateBatt);
+      battery.addEventListener('chargingchange', updateBatt);
+    } catch { grid.appendChild(metricCard('Battery', 'Not available', battIcon, 'orange')); }
+  } else {
+    grid.appendChild(metricCard('Battery', 'Not exposed by this browser', battIcon, 'orange'));
+  }
+
+  const tipList = [];
+  if (conn && (conn.effectiveType === '2g' || conn.effectiveType === 'slow-2g')) tipList.push('Your connection is slow right now — expect lag in real-time features like chat and live collaboration.');
+  if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) tipList.push('Low core count detected — close other browser tabs before running heavy Terminal compilations.');
+  if (navigator.deviceMemory && navigator.deviceMemory <= 4) tipList.push('Limited memory detected — turning on Compact dashboard cards in Settings can reduce DOM overhead.');
+  if (tipList.length === 0) tipList.push('No performance concerns detected from what this browser can measure.');
+  tipList.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'notif-item blue';
+    row.innerHTML = `<div><div class="notif-desc">${t}</div></div>`;
+    tips.appendChild(row);
+  });
+}
+function startFpsMeter() {
+  stopFpsMeter();
+  let frames = 0, lastTime = performance.now();
+  function tick(now) {
+    frames++;
+    if (now - lastTime >= 1000) {
+      const el = document.getElementById('metric-Live-FPS');
+      if (el) el.textContent = `${frames} fps`;
+      frames = 0; lastTime = now;
+    }
+    fpsMeterHandle = requestAnimationFrame(tick);
+  }
+  fpsMeterHandle = requestAnimationFrame(tick);
+}
+function stopFpsMeter() {
+  if (fpsMeterHandle) cancelAnimationFrame(fpsMeterHandle);
+  fpsMeterHandle = null;
+}
+
+// ============================================================
+// LINK DEPLOYER — real per-project deployed-URL management
+// ============================================================
+async function loadLinkDeployerUI() {
+  const list = document.getElementById('linkDeployerList');
+  list.innerHTML = '<p style="color:var(--text-tertiary);">Loading…</p>';
+  try {
+    const all = await api('/api/projects');
+    const mine = all.filter(p => p.ownerId === userState.userId);
+    list.innerHTML = '';
+    if (mine.length === 0) { list.innerHTML = '<p style="color:var(--text-tertiary);">You don\'t own any projects yet — create one in Projects Manager first.</p>'; return; }
+    mine.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'dash-card theme-blue';
+      row.style.cursor = 'default';
+      row.innerHTML = `
+        <h3>${p.name}</h3>
+        <div class="friend-add-row">
+          <input type="text" placeholder="https://your-deployed-url.com" value="${p.deployedUrl || ''}" id="deployUrl-${p.id}">
+          <button class="nav-cta btn-golden" onclick="saveLinkDeployerUrl('${p.id}')">Save</button>
+        </div>
+        ${p.deployedUrl ? `<a href="${p.deployedUrl}" target="_blank" rel="noopener" class="enter-btn" style="text-decoration:none;">Visit live site <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></a>` : ''}
+      `;
+      list.appendChild(row);
+    });
+  } catch (e) { list.innerHTML = `<p style="color:var(--accent-coral);">${e.message}</p>`; }
+}
+async function saveLinkDeployerUrl(projectId) {
+  const input = document.getElementById(`deployUrl-${projectId}`);
+  const url = input.value.trim();
+  try { await api(`/api/projects/${projectId}/deployed-url`, { method: 'PUT', body: { url } }); showToast('Deployment link saved'); loadLinkDeployerUI(); }
+  catch (e) { showToast(e.message); }
 }
 
 // ============================================================
@@ -891,6 +1722,13 @@ document.getElementById('guestBtn').addEventListener('click', async () => {
 });
 
 function applyProfileToState(profile) {
+  if (!profile) {
+    // This is what used to crash as "Cannot read properties of undefined
+    // (reading 'userId')" — the server now self-heals missing profiles so
+    // this shouldn't fire in practice, but fail loudly instead of crashing if it ever does.
+    showToast('Account data is incomplete — please try signing in again');
+    throw new Error('No profile returned from server');
+  }
   userState.userId = profile.userId;
   userState.socialId = profile.socialId;
   userState.username = profile.username;
@@ -901,17 +1739,36 @@ function applyProfileToState(profile) {
   userState.device = profile.device || userState.device;
   userState.level = profile.level || 1;
   userState.stats = { followers: profile.followers||0, projects: profile.projects||0, commits: profile.commits||0 };
+  userState.defaultPage = profile.defaultPage || '';
+  userState.avatarImgSrc = profile.avatar || userState.avatarImgSrc || null;
+  userState.camSettings = profile.camSettings || DEFAULT_STATE.camSettings;
+  userState.socialSettings = profile.socialSettings || DEFAULT_STATE.socialSettings;
+  const chip = document.getElementById('headerSocialIdChip');
+  if (chip) chip.style.display = userState.socialSettings.showSocialIdOnCard === false ? 'none' : 'inline-block';
 }
 
 function connectSocket() {
   if (typeof io === 'undefined') { console.warn('Socket.IO client failed to load.'); return; }
   socket = io({ auth: { token: authToken } });
+  socket.on('connect', () => { api('/api/presence/friends').then(ids => { onlineFriendIds = new Set(ids); if (getActiveKnightPageId() === 'socialPage') renderSocialFriendsList(); loadCommFriendsUI(); }).catch(() => {}); });
   socket.on('new_message', (m) => {
     if (m.fromUser === activeChatFriend || m.toUser === activeChatFriend) appendChatMessage(m);
+    if (m.fromUser !== userState.userId) maybeFireDesktopNotification('New message', m.body?.slice(0, 80) || 'You have a new message');
   });
-  socket.on('friend_request', (data) => { pushNotification('Friend request', `${data.fromProfile.username} wants to connect`, 'gold'); refreshIncomingRequests(); });
-  socket.on('friend_accepted', (data) => { pushNotification('Friend added', `${data.by.username} accepted your request`, 'green'); loadCommFriendsUI(); });
-  socket.on('notification', (n) => pushNotification(n.title, n.text, n.type));
+  socket.on('friend_request', (data) => { pushNotification('Friend request', `${data.fromProfile.username} wants to connect`, 'gold'); refreshIncomingRequests(); maybeFireDesktopNotification('Friend request', `${data.fromProfile.username} wants to connect`); });
+  socket.on('friend_accepted', (data) => { pushNotification('Friend added', `${data.by.username} accepted your request`, 'green'); loadCommFriendsUI(); maybeFireDesktopNotification('Friend added', `${data.by.username} accepted your request`); });
+  socket.on('notification', (n) => { pushNotification(n.title, n.text, n.type); maybeFireDesktopNotification(n.title, n.text); });
+  socket.on('presence', ({ userId, online }) => {
+    if (online) onlineFriendIds.add(userId); else onlineFriendIds.delete(userId);
+    if (getActiveKnightPageId() === 'socialPage') renderSocialFriendsList();
+    document.getElementById('ppPresenceDot')?.classList.toggle('online', currentPublicProfile?.userId === userId && online);
+    loadCommFriendsUI();
+  });
+  socket.on('ping_received', ({ fromProfile }) => {
+    pushNotification('👋 Ping!', `${fromProfile.username} says hi`, 'gold');
+    showToast(`👋 ${fromProfile.username} pinged you!`);
+    maybeFireDesktopNotification('👋 Ping!', `${fromProfile.username} says hi`);
+  });
 }
 
 async function enterDashboard() {
@@ -930,12 +1787,18 @@ async function enterDashboard() {
 
   // Restore whichever full-screen page the URL points at (direct link, refresh,
   // or the back/forward buttons) instead of always popping the profile modal.
-  const targetId = window.location.hash ? window.location.hash.slice(1) : null;
-  if (targetId && document.getElementById(targetId)?.classList.contains('knight-page')) {
-    document.querySelectorAll('.knight-page.active').forEach(p => p.classList.remove('active'));
-    document.getElementById(targetId).classList.add('active');
-    history.replaceState({ page: targetId }, '', '#' + targetId);
+  const { pageId, projectId } = resolveRoute(window.location.pathname);
+  if (pageId === 'projectDetailPage' && projectId) {
+    await openProjectDetail(projectId, { pushHistory: false });
+  } else if (pageId && document.getElementById(pageId)) {
+    document.getElementById(pageId).classList.add('active');
+    onKnightPageOpen(pageId);
+  } else if (userState.defaultPage && document.getElementById(userState.defaultPage)) {
+    document.getElementById(userState.defaultPage).classList.add('active');
+    history.replaceState({ page: userState.defaultPage }, '', pathForPage(userState.defaultPage));
+    onKnightPageOpen(userState.defaultPage);
   } else {
+    if (window.location.pathname !== '/') history.replaceState({}, '', '/');
     openModal('profileModal'); // Default: profile opens the moment a fresh session starts.
   }
 }
@@ -951,6 +1814,11 @@ async function boot() {
   wireHandheldControls();
   wireConsoleDpad();
   initShortcutPage();
+  if (localStorage.getItem('knight_compact_dash') === 'true') document.body.classList.add('compact-dash');
+  applyReduceMotion(localStorage.getItem('knight_reduce_motion') === 'true');
+  const soundPref = localStorage.getItem('knight_error_sound') !== 'false';
+  const termToggleEl = document.getElementById('termAudioToggle');
+  if (termToggleEl) termToggleEl.checked = soundPref;
   generateFeaturedAvatars('authAvatarGrid', (src) => { pendingAvatar = src; });
   generateFeaturedAvatars('editAvatarGrid', (src) => { userState.avatarImgSrc = src; renderUI(); showToast('Avatar updated'); });
   document.querySelectorAll('.device-card').forEach(card => card.addEventListener('click', () => selectDevice(card.dataset.device)));
@@ -961,13 +1829,33 @@ async function boot() {
       applyProfileToState(profile);
       await enterDashboard();
     } catch (e) {
-      localStorage.removeItem('knight_token');
-      authToken = null;
-      if (window.location.hash) history.replaceState({}, '', window.location.pathname + window.location.search);
+      if (e.isNetworkError) {
+        // The token is probably still fine — the server just hasn't answered
+        // yet (very common right after a Render free-tier cold start). Retry
+        // once after a short wait instead of throwing the session away.
+        showToast(e.message);
+        setTimeout(async () => {
+          try {
+            const profile = await api('/api/profile/me');
+            applyProfileToState(profile);
+            await enterDashboard();
+          } catch (e2) {
+            if (e2.status === 401) { localStorage.removeItem('knight_token'); authToken = null; }
+            if (window.location.pathname !== '/') history.replaceState({}, '', '/');
+            showToast(e2.isNetworkError ? 'Still unable to reach the server — please refresh in a moment.' : e2.message);
+          }
+        }, 4000);
+      } else {
+        // A real rejection from the server (expired/invalid token) — this is
+        // the only case where signing the person out is actually correct.
+        localStorage.removeItem('knight_token');
+        authToken = null;
+        if (window.location.pathname !== '/') history.replaceState({}, '', '/');
+      }
     }
-  } else if (window.location.hash) {
-    // Not signed in — a stale page hash from a previous session shouldn't linger in the URL.
-    history.replaceState({}, '', window.location.pathname + window.location.search);
+  } else if (window.location.pathname !== '/') {
+    // Not signed in — a deep link from a previous session shouldn't linger in the URL.
+    history.replaceState({}, '', '/');
   }
 }
 window.addEventListener('DOMContentLoaded', boot);

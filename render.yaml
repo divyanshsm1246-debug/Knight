@@ -3,6 +3,14 @@ services:
     name: knight-realmes
     runtime: node
     plan: free
+    # NOTE ON THE "440" / RANDOM-LOOKING FAILURES: Render's free plan spins
+    # the service down after ~15 minutes with no traffic. The next request
+    # then has to cold-start the whole container, which can take 30-60s.
+    # If the browser or an in-between proxy gives up before that finishes,
+    # you'll see a network failure with no clean HTTP status — the client
+    # now retries once automatically and no longer signs you out over it,
+    # but the delay itself only goes away on a paid plan (no free-tier sleep)
+    # or by hitting the URL yourself to "warm" it before real traffic.
     buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /

@@ -4,21 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Knight</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23100f11'/%3E%3Cpath d='M12 4 L18 7.5 V14.5 L12 18 L6 14.5 V7.5 Z' fill='none' stroke='%23F3C623' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M6 7.5 L12 11 L18 7.5' fill='none' stroke='%23F3C623' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M12 11 V18' stroke='%23F3C623' stroke-width='1.5'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23100f11'/%3E%3Cpath d='M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z' fill='none' stroke='%23F3C623' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M15.8 18.5H9.4l.7-2.3c-.7-.8-1.1-1.7-1-2.7.2-1.4 1.3-2.4 1.7-3.7.2-.8-.1-1.5-.8-1.8-.4-.2-.4-.7-.1-.9l1.1-1.1c.2-.2.6-.3.8-.1 1.2.6 2.4 1.7 2.9 3 .3.8.3 1.6.2 2.5-.1 1-.6 1.9-.6 2.9 0 1.4.7 2.6 1.5 3.3z' fill='%23F3C623'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="/socket.io/socket.io.js"></script>
+<script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
 </head>
 <body>
 
 <section class="auth-section" id="auth">
   <div class="brand" style="margin-bottom: 32px; justify-content: center; position: relative; z-index: 10; font-size: 1.5rem;">
     <svg class="brand-icon" style="width: 34px; height: 34px;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-      <path d="M4 6.5 L12 11 L20 6.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-      <path d="M12 11 V22" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M15.8 18.5H9.4l.7-2.3c-.7-.8-1.1-1.7-1-2.7.2-1.4 1.3-2.4 1.7-3.7.2-.8-.1-1.5-.8-1.8-.4-.2-.4-.7-.1-.9l1.1-1.1c.2-.2.6-.3.8-.1 1.2.6 2.4 1.7 2.9 3 .3.8.3 1.6.2 2.5-.1 1-.6 1.9-.6 2.9 0 1.4.7 2.6 1.5 3.3z" fill="currentColor"/>
     </svg>
     Knight
   </div>
@@ -81,6 +81,15 @@
       </div>
     </form>
     <p id="authError" style="color:var(--accent-coral); font-size:.8rem; margin-top:12px; display:none;"></p>
+    <div style="display:flex; align-items:center; gap:10px; margin:18px 0 4px;">
+      <div style="flex:1; height:1px; background:var(--panel-border);"></div>
+      <span style="font-size:.72rem; color:var(--text-tertiary);">or</span>
+      <div style="flex:1; height:1px; background:var(--panel-border);"></div>
+    </div>
+    <button type="button" class="nav-cta" id="passkeyLoginBtn" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="4"/><path d="M8 12v9M8 15h4M8 18h3"/><path d="M12.5 9.5 20 2"/><path d="M17 5l2 2M14.5 7.5l2 2"/></svg>
+      Sign in with a Passkey
+    </button>
   </div>
 </section>
 
@@ -88,9 +97,8 @@
   <div class="dash-header">
     <div class="brand">
       <svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-        <path d="M4 6.5 L12 11 L20 6.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-        <path d="M12 11 V22" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M12 2 L20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        <path d="M15.8 18.5H9.4l.7-2.3c-.7-.8-1.1-1.7-1-2.7.2-1.4 1.3-2.4 1.7-3.7.2-.8-.1-1.5-.8-1.8-.4-.2-.4-.7-.1-.9l1.1-1.1c.2-.2.6-.3.8-.1 1.2.6 2.4 1.7 2.9 3 .3.8.3 1.6.2 2.5-.1 1-.6 1.9-.6 2.9 0 1.4.7 2.6 1.5 3.3z" fill="currentColor"/>
       </svg>
       Workspace / Nexus
       <span id="headerDeviceBadge" class="device-badge">
@@ -100,6 +108,10 @@
     </div>
 
     <div style="display:flex; align-items:center; gap: 16px;">
+      <div class="nav-cta" id="commandPaletteBtn" onclick="openCommandPalette()" title="Command Palette" style="display:flex; align-items:center; gap:8px; padding:8px 14px; cursor:pointer;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/></svg>
+        <span class="cmdk-hint">⌘K</span>
+      </div>
       <div class="notification-bell" onclick="openModal('notificationsModal')" title="System Alerts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px;"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
         <div class="notification-badge hidden" id="notifBadge"></div>
@@ -138,9 +150,16 @@
 
     <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('arcadePage')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="17" cy="12" r="1"></circle><circle cx="14" cy="12" r="1"></circle><line x1="6" y1="12" x2="10" y2="12"></line><line x1="8" y1="10" x2="8" y2="14"></line></svg></div>
-      <h3>Arcade / Game Booster</h3>
+      <h3>Arcade</h3>
       <p>A real playable memory-match game, built to test with your device's input mode.</p>
       <div class="enter-btn">Play Arcade <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('gameBoosterPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"></path></svg></div>
+      <h3>Game Booster</h3>
+      <p>Real CPU, memory, network, and battery readouts straight from your browser — plus a live FPS meter.</p>
+      <div class="enter-btn">Open Booster <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
     <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('commPage')">
@@ -150,11 +169,18 @@
       <div class="enter-btn">Connect <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
-    <div class="dash-card theme-neutral" tabindex="0" onclick="openModal('profileModal')">
+    <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('socialPage')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
       <h3>Social Network</h3>
-      <p>Connect with other developers by Social ID, showcase modules, collaborate.</p>
+      <p>Connect with other developers by Social ID, view requests, manage your friends list.</p>
       <div class="enter-btn">Enter Hub <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-blue" tabindex="0" onclick="openKnightPage('linkDeployerPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></div>
+      <h3>Link Deployer</h3>
+      <p>Save and share the real deployed URL for each of your projects, in one place.</p>
+      <div class="enter-btn">Manage Links <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
     <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('notesPage')">
@@ -169,6 +195,13 @@
       <h3>Guide</h3>
       <p>How every page and shortcut in Knight actually works.</p>
       <div class="enter-btn">Read Guide <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+    </div>
+
+    <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('settingsPage')">
+      <div class="icon-box"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></div>
+      <h3>Settings</h3>
+      <p>Device optimization, your default page on sign-in, and other preferences.</p>
+      <div class="enter-btn">Open Settings <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
     <div class="dash-card theme-neutral" id="adminCard" style="display:none;" tabindex="0" onclick="openKnightPage('adminPage')">
@@ -188,6 +221,50 @@
 </section>
 
 <!-- ================= Profile Modal ================= -->
+<div class="modal-overlay" id="publicProfileModal">
+  <div class="modal-content" style="max-width:480px;">
+    <svg class="close-modal" onclick="closeModal('publicProfileModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <div style="display:flex; align-items:center; gap:14px; margin-bottom:16px;">
+      <div id="ppAvatar" style="width:64px; height:64px; border-radius:50%; background:rgba(0,0,0,.4); border:1px solid var(--panel-border); overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0;"></div>
+      <div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h2 id="ppUsername" style="font-size:1.2rem;">username</h2>
+          <span id="ppPresenceDot" class="presence-dot"></span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+          <span id="ppRole" style="font-size:.78rem; color:var(--accent-gold);">Coder</span>
+          <span class="social-id-chip" id="ppSocialId" style="font-size:.65rem;">KNT-------</span>
+        </div>
+      </div>
+    </div>
+    <p id="ppBio" style="font-size:.85rem; color:var(--text-secondary); margin-bottom:14px;"></p>
+    <div style="display:flex; gap:16px; margin-bottom:14px; font-size:.8rem; color:var(--text-secondary);">
+      <span>Lvl <b id="ppLevel" style="color:var(--text-primary);">1</b></span>
+      <span><b id="ppFollowers" style="color:var(--text-primary);">0</b> followers</span>
+      <span><b id="ppProjects" style="color:var(--text-primary);">0</b> projects</span>
+      <span><b id="ppCommits" style="color:var(--text-primary);">0</b> commits</span>
+    </div>
+    <div id="ppLinks" style="display:flex; gap:10px; margin-bottom:16px;"></div>
+    <div style="display:flex; gap:10px; margin-bottom:20px;">
+      <button class="nav-cta btn-golden" id="ppPingBtn" style="display:none;" onclick="sendPingUI()">👋 Ping</button>
+      <button class="nav-cta" id="ppMessageBtn" style="display:none;" onclick="messageFromProfileUI()">Message</button>
+      <button class="nav-cta btn-golden" id="ppAddFriendBtn" style="display:none;" onclick="addFriendFromProfileUI()">+ Add Friend</button>
+    </div>
+    <div class="shortcut-category-label">Public Projects</div>
+    <div id="ppProjectsList" style="display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="commandPaletteModal">
+  <div class="modal-content" style="max-width:520px; padding:0; overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--panel-border);">
+      <input type="text" id="cmdkInput" placeholder="Type a command or search pages… (e.g. terminal, notes, sign out)"
+        style="width:100%; background:transparent; border:none; outline:none; color:var(--text-primary); font-size:1rem; font-family:inherit;">
+    </div>
+    <div id="cmdkResults" style="max-height:360px; overflow-y:auto; padding:8px;"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="profileModal">
   <div class="modal-content">
     <svg class="close-modal" onclick="closeModal('profileModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -325,7 +402,24 @@
 
   <div id="projectsListView">
     <button class="nav-cta btn-golden" onclick="openModal('newProjectModal')" style="margin-bottom:20px;">+ New Project</button>
+    <div class="friend-add-row" style="max-width:420px; margin-bottom:20px;">
+      <input type="text" id="joinProjectCodeInput" placeholder="Have a passkey? Enter it to join a project">
+      <button class="nav-cta" onclick="joinProjectByCodeUI()">Join</button>
+    </div>
     <div class="dash-grid" id="myProjectsGrid"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="fileEditorModal">
+  <div class="modal-content" style="max-width:700px;">
+    <svg class="close-modal" onclick="closeModal('fileEditorModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 id="fileEditorTitle" style="font-size:1.2rem; margin-bottom:6px; font-family:'JetBrains Mono',monospace;">filename.js</h2>
+    <p id="fileEditorRoleHint" style="font-size:.78rem; color:var(--text-tertiary); margin-bottom:14px;"></p>
+    <textarea id="fileEditorContent" spellcheck="false" style="width:100%; min-height:280px; background:rgba(0,0,0,.35); border:1px solid var(--panel-border); border-radius:14px; padding:16px; color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:.85rem; resize:vertical;"></textarea>
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <button class="submit-btn" id="fileEditorSaveBtn" style="flex:2;" onclick="saveFileEditorUI()">Save</button>
+      <button class="nav-cta" id="fileEditorDeleteBtn" style="color:var(--accent-coral); display:none;" onclick="deleteFileEditorUI()">Delete File</button>
+    </div>
   </div>
 </div>
 
@@ -338,6 +432,27 @@
     <div class="field"><label class="font-mono">Category</label>
       <select id="newProjCategory"><option>General</option><option>Web</option><option>Game</option><option>AI/ML</option><option>Tool</option><option>Mobile</option></select>
     </div>
+    <div class="field"><label class="font-mono">Custom Tags</label><input type="text" id="newProjTags" placeholder="rest-api, hackathon, open-source (comma separated)"></div>
+    <div class="field"><label class="font-mono">Visibility</label>
+      <select id="newProjVisibility" onchange="document.getElementById('newProjVisibleToRow').style.display = this.value === 'selected' ? 'block' : 'none';">
+        <option value="public">Public — anyone can find it</option>
+        <option value="friends">Friends — visible to your friends only</option>
+        <option value="selected">Selected Friends — pick who can see it</option>
+        <option value="private">Private — only you</option>
+      </select>
+    </div>
+    <div class="field" id="newProjVisibleToRow" style="display:none;">
+      <label class="font-mono">Visible to (Social IDs)</label>
+      <input type="text" id="newProjVisibleTo" placeholder="KNT-AAAAAA, KNT-BBBBBB">
+    </div>
+    <div class="field">
+      <label class="font-mono">Location (optional — powers "Near You" discovery)</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="newProjLocationLabel" placeholder="e.g. Delhi, India" style="flex:1;">
+        <button type="button" class="nav-cta" id="newProjLocationBtn" onclick="attachLocationUI()" style="white-space:nowrap;">📍 Use My Location</button>
+      </div>
+      <p id="newProjLocationStatus" style="font-size:.72rem; color:var(--text-tertiary); margin-top:6px;"></p>
+    </div>
     <button class="submit-btn" style="width:100%;" onclick="createProjectUI()">Create</button>
   </div>
 </div>
@@ -346,25 +461,60 @@
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('projectDetailPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
     <div class="page-title" id="projectDetailTitle">Project</div>
+    <span id="projectDetailRoleBadge" class="social-id-chip" style="margin-left:auto;">owner</span>
   </div>
-  <p id="projectDetailDesc" style="color:var(--text-secondary); margin-bottom:20px;"></p>
+  <p id="projectDetailDesc" style="color:var(--text-secondary); margin-bottom:6px;"></p>
+  <div id="projectDetailTags" style="margin-bottom:20px;"></div>
 
   <div class="shortcut-category-label">Files</div>
-  <div id="projectFilesList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;"></div>
-  <div class="friend-add-row">
+  <div id="projectFilesList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;"></div>
+  <div class="friend-add-row" id="addFileRow">
     <input type="text" id="newFileNameInput" placeholder="filename.js" style="max-width:200px;">
     <button class="nav-cta" onclick="addProjectFileUI()">+ Add File</button>
   </div>
 
+  <div class="shortcut-category-label">Versions</div>
+  <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Snapshots of every file at a point in time. Cutting a new version never overwrites an old one — you can always roll back.</p>
+  <div id="versionsList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+  <div class="friend-add-row" id="cutVersionRow">
+    <input type="text" id="versionNoteInput" placeholder="What changed in this version?">
+    <button class="nav-cta btn-golden" onclick="cutVersionUI()">+ Cut New Version</button>
+  </div>
+
   <div class="shortcut-category-label">Contributors</div>
   <div id="projectMembersList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
-  <div class="friend-add-row">
+  <div class="friend-add-row" id="inviteMemberRow">
     <input type="text" id="newMemberSocialId" placeholder="Social ID (KNT-XXXXXX)">
-    <select id="newMemberRole" style="max-width:130px;"><option value="viewer">Viewer</option><option value="contributor">Contributor</option><option value="editor">Editor</option></select>
+    <select id="newMemberRole" style="max-width:130px;">
+      <option value="viewer">Viewer — read only</option>
+      <option value="contributor">Contributor — proposes changes</option>
+      <option value="editor">Editor — edits directly</option>
+    </select>
     <button class="nav-cta" onclick="addProjectMemberUI()">Invite</button>
   </div>
 
+  <div class="shortcut-category-label" id="joinCodeSectionLabel" style="display:none;">Invite Passkey</div>
+  <div id="joinCodeSection" style="display:none; max-width:520px; margin-bottom:24px;">
+    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Anyone with this passkey can join instantly as the role below — no Social ID needed. Regenerate any time to revoke old links.</p>
+    <div class="friend-add-row" style="margin-bottom:10px;">
+      <input type="text" id="joinCodeDisplay" readonly style="font-family:'JetBrains Mono',monospace; letter-spacing:.05em;">
+      <button class="nav-cta" onclick="copyJoinCodeUI()">Copy</button>
+      <button class="nav-cta" onclick="regenerateJoinCodeUI()">Regenerate</button>
+    </div>
+    <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+      <label style="font-size:.82rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); cursor:pointer;">
+        <input type="checkbox" id="joinCodeEnabledToggle" onchange="saveJoinCodeSettingsUI()"> Passkey active
+      </label>
+      <select id="joinCodeRoleSelect" onchange="saveJoinCodeSettingsUI()" style="max-width:200px;">
+        <option value="viewer">Grants: Viewer</option>
+        <option value="contributor">Grants: Contributor</option>
+        <option value="editor">Grants: Editor</option>
+      </select>
+    </div>
+  </div>
+
   <div class="shortcut-category-label">Change Requests</div>
+  <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Everything a Contributor edits lands here first — nothing touches the real file until you approve it.</p>
   <div id="changeRequestsList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;"></div>
 
   <div class="shortcut-category-label">Deployment</div>
@@ -418,17 +568,46 @@
     <div class="page-back" onclick="closeKnightPage('studioPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
     <div class="page-title">Studio</div>
   </div>
-  <div style="display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
-    <input type="text" class="shortcut-search" id="studioSearchInput" placeholder="Search projects…" style="margin-bottom:0; flex:1; min-width:200px;">
-    <select id="studioCategoryFilter" style="padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary);">
-      <option value="">All categories</option>
-      <option>General</option><option>Web</option><option>Game</option><option>AI/ML</option><option>Tool</option><option>Mobile</option>
-    </select>
-    <select id="studioSortSelect" style="padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary);">
+
+  <div style="display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
+    <input type="text" class="shortcut-search" id="studioSearchInput" placeholder="Search public projects…" style="margin-bottom:0; flex:1; min-width:200px;">
+    <button class="nav-cta" id="studioMicBtn" title="Search by voice" onclick="startVoiceSearchUI()" style="padding:12px 16px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+    </button>
+  </div>
+
+  <div class="studio-tabs" id="studioTabs">
+    <div class="studio-tab active" data-tab="categories" onclick="setStudioTab('categories')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span>Categories</span>
+    </div>
+    <div class="studio-tab" data-tab="trending" onclick="setStudioTab('trending')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+      <span>Trending</span>
+    </div>
+    <div class="studio-tab" data-tab="yours" onclick="setStudioTab('yours')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>Yours</span>
+    </div>
+    <div class="studio-tab" data-tab="socials" onclick="setStudioTab('socials')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Socials</span>
+    </div>
+    <div class="studio-tab" data-tab="near" onclick="setStudioTab('near')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <span>Near You</span>
+    </div>
+  </div>
+
+  <div id="studioCategoryPills" style="display:none; flex-wrap:wrap; gap:8px; margin-bottom:16px;"></div>
+  <div id="studioSortRow" style="display:flex; gap:10px; margin-bottom:16px;">
+    <select id="studioSortSelect" style="padding:10px 14px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary); font-size:.82rem;">
       <option value="stars">Most starred</option>
-      <option value="created_at">Newest</option>
+      <option value="createdAt">Newest</option>
     </select>
   </div>
+  <p id="studioEmptyHint" style="display:none; color:var(--text-tertiary); font-size:.85rem; margin-bottom:14px;"></p>
+
   <div class="dash-grid" id="studioGrid"></div>
 </div>
 
@@ -520,6 +699,164 @@
   <input type="text" class="shortcut-search" id="shortcutSearchInput" placeholder="Search Knight shortcuts…">
   <p id="shortcutCount" style="font-size:.8rem; color:var(--text-tertiary); margin-bottom:16px;"></p>
   <div class="shortcut-grid" id="shortcutGrid"></div>
+</div>
+
+<!-- ================= Social & Friends ================= -->
+<div class="knight-page" id="socialPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('socialPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Social &amp; Friends</div>
+  </div>
+  <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:20px;">
+    Your Social ID is <span class="social-id-chip" id="socialPageMyId">KNT-------</span> — share it so others can add you.
+  </p>
+  <div class="friend-add-row" style="max-width:520px; margin-bottom:12px;">
+    <input type="text" id="socialAddFriendInput" placeholder="Add or look up by Social ID (KNT-XXXXXX)">
+    <button class="nav-cta" onclick="viewProfileFromSocialPage()">View Profile</button>
+    <button class="nav-cta btn-golden" onclick="sendFriendRequestFromSocialPage()">Send Request</button>
+  </div>
+
+  <div class="shortcut-category-label">Incoming Requests</div>
+  <div id="socialIncomingRequests" style="display:flex; flex-direction:column; gap:10px; margin-bottom:28px; max-width:640px;"></div>
+
+  <div class="shortcut-category-label">Your Friends</div>
+  <div class="friend-add-row" style="max-width:640px; margin-bottom:12px;">
+    <input type="text" id="socialFriendSearchInput" placeholder="Search your friends…" oninput="renderSocialFriendsList()">
+  </div>
+  <div id="socialFriendsListFull" style="display:flex; flex-direction:column; gap:10px; max-width:640px;"></div>
+</div>
+
+<!-- ================= Settings ================= -->
+<div class="knight-page" id="settingsPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('settingsPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Settings</div>
+  </div>
+
+  <div class="shortcut-category-label">Device Optimization</div>
+  <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:14px;">Pick your active environment — this drives real shortcut mappings, focus states, and layout density across the site.</p>
+  <div class="device-grid" id="settingsDeviceGrid" style="max-width:640px; margin-bottom:8px;">
+    <div class="device-card" data-device="Windows"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="4" width="8" height="8"/><rect x="13" y="4" width="8" height="8"/><rect x="3" y="14" width="8" height="8"/><rect x="13" y="14" width="8" height="8"/></svg><div style="font-weight:600;font-size:.9rem;">Windows</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Alt-key shortcuts</div></div>
+    <div class="device-card" data-device="MacBook"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M2 19h20l-2 2H4z"/></svg><div style="font-weight:600;font-size:.9rem;">MacBook</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">⌘-key shortcuts</div></div>
+    <div class="device-card" data-device="Smartphone"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Smartphone</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Touch optimized</div></div>
+    <div class="device-card" data-device="Tablet"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-green)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Tablet</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Edge scroll controls</div></div>
+    <div class="device-card" data-device="Console"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#F3C623" stroke-width="1.8" style="margin-bottom:8px;"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="17" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/></svg><div style="font-weight:600;font-size:.9rem;">Console</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">D-pad focus nav</div></div>
+    <div class="device-card" data-device="Handheld"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="6" width="18" height="12" rx="3"/><line x1="7" y1="12" x2="11" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><circle cx="15.5" cy="12.5" r="0.5" fill="currentColor"/><circle cx="17.5" cy="10.5" r="0.5" fill="currentColor"/></svg><div style="font-weight:600;font-size:.9rem;">Handheld</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Virtual A/B buttons</div></div>
+    <div class="device-card" data-device="Headphones"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg><div style="font-weight:600;font-size:.9rem;">Headphones</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Media-key tab nav</div></div>
+  </div>
+  <button class="nav-cta" style="margin-bottom:28px;" onclick="openKnightPage('shortcutPage')">View Device Optimization Keys &rarr;</button>
+
+  <div class="shortcut-category-label">Default Page</div>
+  <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:12px;">Choose what opens automatically the moment you sign in.</p>
+  <select id="defaultPageSelect" style="max-width:320px; padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary); margin-bottom:28px;">
+    <option value="">Dashboard (default)</option>
+    <option value="terminalPage">Terminal</option>
+    <option value="projectsPage">Projects Manager</option>
+    <option value="studioPage">Studio</option>
+    <option value="commPage">Communication</option>
+    <option value="socialPage">Social &amp; Friends</option>
+    <option value="notesPage">Notes = Codes</option>
+    <option value="arcadePage">Arcade</option>
+    <option value="gameBoosterPage">Game Booster</option>
+    <option value="linkDeployerPage">Link Deployer</option>
+    <option value="guidePage">Guide</option>
+  </select>
+
+  <div class="shortcut-category-label">Preferences</div>
+  <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); margin-bottom:14px; cursor:pointer;">
+    <input type="checkbox" id="settingsErrorSoundToggle" checked> Play a sound on Terminal errors
+  </label>
+  <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); margin-bottom:28px; cursor:pointer;">
+    <input type="checkbox" id="settingsCompactToggle"> Compact dashboard cards
+  </label>
+
+  <!-- ===== Security / Passkeys ===== -->
+  <div class="shortcut-category-label">Security — Passkeys</div>
+  <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:14px;">
+    Passkeys use your device's built-in Face ID / Touch ID / Windows Hello / security key instead of a password. Real WebAuthn credentials, stored only on your device — Knight never sees them.
+  </p>
+  <div id="passkeysList" style="display:flex; flex-direction:column; gap:10px; max-width:640px; margin-bottom:14px;">
+    <p style="color:var(--text-tertiary); font-size:.85rem;">Loading…</p>
+  </div>
+  <button class="nav-cta btn-golden" style="margin-bottom:28px;" onclick="addPasskeyUI()">+ Add a Passkey on this device</button>
+
+  <!-- ===== Camera Settings ===== -->
+  <div class="shortcut-category-label">Camera Settings</div>
+  <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:14px;">
+    Choose which camera and microphone Knight uses for calls and recordings. Nothing streams anywhere until you enable access below.
+  </p>
+  <div style="max-width:640px; display:flex; flex-direction:column; gap:12px; margin-bottom:14px;">
+    <button class="nav-cta" id="camEnableBtn" onclick="requestCameraAccessUI()">Enable Camera &amp; Microphone Access</button>
+    <p id="camPermissionHint" style="font-size:.78rem; color:var(--text-tertiary);">Device labels appear after you grant permission.</p>
+    <video id="camPreview" autoplay muted playsinline style="display:none; width:100%; max-width:320px; border-radius:12px; border:1px solid var(--panel-border); background:#000;"></video>
+    <div class="field">
+      <label class="font-mono">camera ~</label>
+      <select id="camDeviceSelect" style="width:100%; padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary);"><option value="">Default camera</option></select>
+    </div>
+    <div class="field">
+      <label class="font-mono">microphone ~</label>
+      <select id="micDeviceSelect" style="width:100%; padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary);"><option value="">Default microphone</option></select>
+    </div>
+    <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); cursor:pointer;">
+      <input type="checkbox" id="camMirrorToggle" checked> Mirror my preview (like a selfie camera)
+    </label>
+    <div style="display:flex; gap:10px;">
+      <button class="nav-cta" onclick="saveCameraSettingsUI()">Save Camera Settings</button>
+      <button class="nav-cta" style="color:var(--accent-coral);" onclick="stopCameraPreviewUI()">Stop Preview</button>
+    </div>
+  </div>
+  <div style="margin-bottom:28px;"></div>
+
+  <!-- ===== Social Settings ===== -->
+  <div class="shortcut-category-label">Social Settings</div>
+  <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); margin-bottom:14px; cursor:pointer;">
+    <input type="checkbox" id="socialAllowRequestsToggle" checked> Allow other Knights to send me friend requests
+  </label>
+  <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); margin-bottom:14px; cursor:pointer;">
+    <input type="checkbox" id="socialAutoAcceptToggle"> Auto-accept friend requests (skip the pending step)
+  </label>
+  <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); margin-bottom:28px; cursor:pointer;">
+    <input type="checkbox" id="socialShowIdToggle" checked> Show my Social ID chip on my profile card
+  </label>
+
+  <!-- ===== Site Settings ===== -->
+  <div class="shortcut-category-label">Site Settings</div>
+  <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); margin-bottom:14px; cursor:pointer;">
+    <input type="checkbox" id="siteReduceMotionToggle"> Reduce motion &amp; animations
+  </label>
+  <label style="font-size:.85rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); margin-bottom:14px; cursor:pointer;">
+    <input type="checkbox" id="siteNotifyToggle"> Desktop notifications for friend requests &amp; messages
+  </label>
+  <button class="nav-cta" style="margin-bottom:28px;" onclick="resetLocalPrefsUI()">Reset Local Preferences</button>
+
+  <div class="shortcut-category-label">Account</div>
+  <button class="nav-cta" style="color:var(--accent-coral);" onclick="signOutUI()">Sign Out</button>
+</div>
+
+<!-- ================= Game Booster ================= -->
+<div class="knight-page" id="gameBoosterPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('gameBoosterPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Game Booster</div>
+  </div>
+  <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:20px; max-width:640px;">
+    Real numbers straight from your browser's own APIs — nothing here is simulated. Knight can't reach into your OS or hardware from a webpage, but it can read what the browser exposes and tell you what that means for gaming performance.
+  </p>
+  <div class="dash-grid" id="gameBoosterGrid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));"></div>
+  <div class="shortcut-category-label">Recommendations</div>
+  <div id="gameBoosterTips" style="display:flex; flex-direction:column; gap:10px; max-width:640px;"></div>
+</div>
+
+<!-- ================= Link Deployer ================= -->
+<div class="knight-page" id="linkDeployerPage">
+  <div class="page-topbar">
+    <div class="page-back" onclick="closeKnightPage('linkDeployerPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Link Deployer</div>
+  </div>
+  <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:20px; max-width:640px;">
+    Knight doesn't host your projects live — deploy them wherever you like (Render, Vercel, Netlify…) and save the real URL here so your team always finds it in one place.
+  </p>
+  <div id="linkDeployerList" style="display:flex; flex-direction:column; gap:14px; max-width:640px;"></div>
 </div>
 
 <div id="tabletEdgeControls" class="floating-controls">
