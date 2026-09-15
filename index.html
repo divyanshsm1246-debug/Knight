@@ -29,12 +29,12 @@
     padding:10px 22px; border-radius:24px; font-size:.9rem; margin-top:6px;
   }
 </style>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect x='1' y='1' width='38' height='38' rx='9' fill='%23100f11' stroke='rgba(255,255,255,0.16)' stroke-width='1.2'/%3E%3Cpath d='M20 6 L33 13 L20 20 L7 13 Z' fill='white' fill-opacity='0.32' stroke='white' stroke-opacity='0.75' stroke-width='0.9' stroke-linejoin='round'/%3E%3Cpath d='M7 13 L20 20 L20 34 L7 27 Z' fill='white' fill-opacity='0.58' stroke='white' stroke-opacity='0.55' stroke-width='0.9' stroke-linejoin='round'/%3E%3Cpath d='M33 13 L20 20 L20 34 L33 27 Z' fill='white' fill-opacity='0.88' stroke='white' stroke-opacity='0.55' stroke-width='0.9' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect x='1' y='1' width='38' height='38' rx='9' fill='%23100f11' stroke='rgba(255,255,255,0.16)' stroke-width='1.2'/%3E%3Cg stroke='white' stroke-opacity='0.28' stroke-width='0.8' stroke-linecap='round'%3E%3Cline x1='20' y1='20' x2='20' y2='6'/%3E%3Cline x1='20' y1='20' x2='7' y2='27'/%3E%3Cline x1='20' y1='20' x2='33' y2='27'/%3E%3C/g%3E%3Cg fill='none' stroke='white' stroke-width='1.1' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M20 6 L33 13 L33 27 L20 34 L7 27 L7 13 Z'/%3E%3Cpath d='M20 20 L33 13 M20 20 L7 13 M20 20 L20 34'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<script src="/socket.io/socket.io.js"></script>
+<!-- Socket.IO removed: the Java backend does not serve it. script.js falls back to HTTP polling. -->
 <script src="https://unpkg.com/@simplewebauthn/browser@13/dist/bundle/index.umd.min.js"></script>
 </head>
 <body>
@@ -42,9 +42,15 @@
 <div id="frameBlockScreen">
   <svg viewBox="0 0 40 40" width="64" height="64" xmlns="http://www.w3.org/2000/svg">
     <rect x="1" y="1" width="38" height="38" rx="9" fill="#15151a" stroke="rgba(255,255,255,0.16)" stroke-width="1.2"/>
-    <path d="M20 6 L33 13 L20 20 L7 13 Z" fill="#ffffff" fill-opacity="0.32" stroke="#ffffff" stroke-opacity="0.75" stroke-width="0.9" stroke-linejoin="round"/>
-    <path d="M7 13 L20 20 L20 34 L7 27 Z" fill="#ffffff" fill-opacity="0.58" stroke="#ffffff" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round"/>
-    <path d="M33 13 L20 20 L20 34 L33 27 Z" fill="#ffffff" fill-opacity="0.88" stroke="#ffffff" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round"/>
+    <g stroke="#ffffff" stroke-opacity="0.28" stroke-width="0.8" stroke-linecap="round">
+      <line x1="20" y1="20" x2="20" y2="6"/>
+      <line x1="20" y1="20" x2="7" y2="27"/>
+      <line x1="20" y1="20" x2="33" y2="27"/>
+    </g>
+    <g fill="none" stroke="#ffffff" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M20 6 L33 13 L33 27 L20 34 L7 27 L7 13 Z"/>
+      <path d="M20 20 L33 13 M20 20 L7 13 M20 20 L20 34"/>
+    </g>
   </svg>
   <h1 style="font-size:1.3rem; margin:0;">Knight</h1>
   <p>This app can't run inside an embedded preview or compiler window.</p>
@@ -55,9 +61,15 @@
   <div class="brand" style="margin-bottom: 32px; justify-content: center; position: relative; z-index: 10; font-size: 1.5rem;">
     <svg class="brand-icon" style="width: 34px; height: 34px;" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
       <rect x="1" y="1" width="38" height="38" rx="9" fill="#15151a" stroke="rgba(255,255,255,0.16)" stroke-width="1.2"/>
-      <path d="M20 6 L33 13 L20 20 L7 13 Z" fill="#ffffff" fill-opacity="0.32" stroke="#ffffff" stroke-opacity="0.75" stroke-width="0.9" stroke-linejoin="round"/>
-      <path d="M7 13 L20 20 L20 34 L7 27 Z" fill="#ffffff" fill-opacity="0.58" stroke="#ffffff" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round"/>
-      <path d="M33 13 L20 20 L20 34 L33 27 Z" fill="#ffffff" fill-opacity="0.88" stroke="#ffffff" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round"/>
+      <g stroke="#ffffff" stroke-opacity="0.28" stroke-width="0.8" stroke-linecap="round">
+        <line x1="20" y1="20" x2="20" y2="6"/>
+        <line x1="20" y1="20" x2="7" y2="27"/>
+        <line x1="20" y1="20" x2="33" y2="27"/>
+      </g>
+      <g fill="none" stroke="#ffffff" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M20 6 L33 13 L33 27 L20 34 L7 27 L7 13 Z"/>
+        <path d="M20 20 L33 13 M20 20 L7 13 M20 20 L20 34"/>
+      </g>
     </svg>
     Knight
   </div>
@@ -137,9 +149,15 @@
     <div class="brand">
       <svg class="brand-icon" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
         <rect x="1" y="1" width="38" height="38" rx="9" fill="#15151a" stroke="rgba(255,255,255,0.16)" stroke-width="1.2"/>
-        <path d="M20 6 L33 13 L20 20 L7 13 Z" fill="#ffffff" fill-opacity="0.32" stroke="#ffffff" stroke-opacity="0.75" stroke-width="0.9" stroke-linejoin="round"/>
-        <path d="M7 13 L20 20 L20 34 L7 27 Z" fill="#ffffff" fill-opacity="0.58" stroke="#ffffff" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round"/>
-        <path d="M33 13 L20 20 L20 34 L33 27 Z" fill="#ffffff" fill-opacity="0.88" stroke="#ffffff" stroke-opacity="0.55" stroke-width="0.9" stroke-linejoin="round"/>
+        <g stroke="#ffffff" stroke-opacity="0.28" stroke-width="0.8" stroke-linecap="round">
+          <line x1="20" y1="20" x2="20" y2="6"/>
+          <line x1="20" y1="20" x2="7" y2="27"/>
+          <line x1="20" y1="20" x2="33" y2="27"/>
+        </g>
+        <g fill="none" stroke="#ffffff" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M20 6 L33 13 L33 27 L20 34 L7 27 L7 13 Z"/>
+          <path d="M20 20 L33 13 M20 20 L7 13 M20 20 L20 34"/>
+        </g>
       </svg>
       Workspace / Nexus
       <span id="headerDeviceBadge" class="device-badge">
@@ -812,6 +830,7 @@
   </label>
 
   <!-- ===== Security / Passkeys ===== -->
+  <div id="passkeySection">
   <div class="shortcut-category-label">Security — Passkeys</div>
   <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:14px;">
     Passkeys use your device's built-in Face ID / Touch ID / Windows Hello / security key instead of a password. Real WebAuthn credentials, stored only on your device — Knight never sees them.
@@ -820,6 +839,7 @@
     <p style="color:var(--text-tertiary); font-size:.85rem;">Loading…</p>
   </div>
   <button class="nav-cta btn-golden" style="margin-bottom:28px;" onclick="addPasskeyUI()">+ Add a Passkey on this device</button>
+  </div>
 
   <!-- ===== Camera Settings ===== -->
   <div class="shortcut-category-label">Camera Settings</div>

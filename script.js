@@ -510,13 +510,13 @@ function initShortcutPage() {
 // ============================================================
 // UI HELPERS
 // ============================================================
-function showToast(message) {
+function showToast(message, duration = 3000) {
   const toast = document.getElementById('toast');
   if (!toast) return;
   document.getElementById('toastMsg').textContent = message;
   toast.style.bottom = '32px';
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { toast.style.bottom = '-100px'; }, 3000);
+  toast._t = setTimeout(() => { toast.style.bottom = '-100px'; }, duration);
 }
 function openModal(id) {
   if (id === 'editProfileModal') populateEditModal();
@@ -651,7 +651,13 @@ async function openPublicProfileModal(socialId) {
   } catch (e) { showToast(e.message); }
 }
 function sendPingUI() {
-  if (!currentPublicProfile || !socket) return;
+  if (!currentPublicProfile) return;
+  if (!socket) {
+    // Pings are push-only by nature, so there is nothing sensible to fall back
+    // to without a socket. Say so plainly instead of appearing to do nothing.
+    showToast('Pings need the real-time server — send a message instead');
+    return;
+  }
   socket.emit('send_ping', { toUserId: currentPublicProfile.userId });
   showToast(`👋 Pinged ${currentPublicProfile.username}`);
 }
@@ -1474,12 +1480,27 @@ function appendChatMessage(m) {
   thread.appendChild(bubble);
   thread.scrollTop = thread.scrollHeight;
 }
-function sendChatMessageUI() {
+async function sendChatMessageUI() {
   const input = document.getElementById('commMessageInput');
   const body = input.value.trim();
-  if (!body || !activeChatFriend || !socket) return;
-  socket.emit('send_message', { toUserId: activeChatFriend, body });
+  if (!body || !activeChatFriend) return;
+  if (socket) {
+    socket.emit('send_message', { toUserId: activeChatFriend, body });
+    input.value = '';
+    return;
+  }
+  // No socket (Java backend): POST it, then show it immediately rather than
+  // waiting up to 3s for the next poll — otherwise sending feels broken.
   input.value = '';
+  try {
+    const msg = await api(`/api/chat/${activeChatFriend}`, { method: 'POST', body: { body } });
+    appendChatMessage(msg);
+    const box = document.getElementById('commMessages');
+    if (box) box.dataset.count = '';  // force the next poll to redraw
+  } catch (e) {
+    input.value = body;  // hand the text back so it isn't lost
+    showToast(e.message || 'Could not send message');
+  }
 }
 
 // ============================================================
@@ -1767,8 +1788,62 @@ function applyProfileToState(profile) {
   if (chip) chip.style.display = userState.socialSettings.showSocialIdOnCard === false ? 'none' : 'inline-block';
 }
 
+// ---------------------------------------------------------------------------
+// REAL-TIME
+// ---------------------------------------------------------------------------
+// The Java backend cannot speak the Socket.IO protocol (that needs a library
+// the dependency-free build deliberately does not carry), so when the
+// Socket.IO client is absent we fall back to HTTP polling rather than letting
+// chat, presence and notifications silently stop working. Messages still send
+// and arrive — they arrive on the next poll instead of being pushed instantly.
+let pollTimers = [];
+
+function stopPolling() {
+  pollTimers.forEach(clearInterval);
+  pollTimers = [];
+}
+
+async function pollPresence() {
+  try {
+    const presence = await api('/api/presence/friends');
+    // The Java server answers with { userId: true/false }; the old Socket.IO
+    // path sent a plain array of ids. Accept both so this works either way.
+    onlineFriendIds = new Set(
+      Array.isArray(presence) ? presence : Object.keys(presence).filter(id => presence[id])
+    );
+    if (getActiveKnightPageId() === 'socialPage') renderSocialFriendsList();
+    loadCommFriendsUI();
+  } catch (e) { /* a dropped poll is not worth bothering the user about */ }
+}
+
+async function pollActiveChat() {
+  if (!activeChatFriend) return;
+  try {
+    const messages = await api(`/api/chat/${activeChatFriend}`);
+    const box = document.getElementById('commMessages');
+    if (!box) return;
+    // Only redraw when the message count actually changed, otherwise the view
+    // would jump and fight the user every few seconds while they read.
+    if (box.dataset.count === String(messages.length)) return;
+    box.dataset.count = String(messages.length);
+    box.innerHTML = '';
+    messages.forEach(appendChatMessage);
+  } catch (e) { /* ignore transient poll failures */ }
+}
+
+function startPolling() {
+  stopPolling();
+  pollPresence();
+  pollTimers.push(setInterval(pollPresence, 20000));
+  pollTimers.push(setInterval(pollActiveChat, 3000));
+}
+
 function connectSocket() {
-  if (typeof io === 'undefined') { console.warn('Socket.IO client failed to load.'); return; }
+  if (typeof io === 'undefined') {
+    console.info('Socket.IO not available — using HTTP polling for chat and presence.');
+    startPolling();
+    return;
+  }
   socket = io({ auth: { token: authToken } });
   socket.on('connect', () => { api('/api/presence/friends').then(ids => { onlineFriendIds = new Set(ids); if (getActiveKnightPageId() === 'socialPage') renderSocialFriendsList(); loadCommFriendsUI(); }).catch(() => {}); });
   socket.on('new_message', (m) => {
@@ -1791,6 +1866,83 @@ function connectSocket() {
   });
 }
 
+// ============================================================
+// TIME-BASED GREETINGS — one per session, themed around Knight/"K-night"
+// ============================================================
+// Each bucket is (base phrases) × (flourishes), so the two combine into far
+// more distinct greetings than either list alone — 15 phrases × 9 flourishes
+// = 135 possible greetings per time-of-day bucket, 540 total across the day,
+// so regulars won't see the same one often.
+const KNIGHT_GREETING_BANK = {
+  morning: { // 5:00 – 11:59
+    phrases: [
+      "Good morning, {name}", "Rise and shine, {name}", "Morning, {name} — ready to build something great?",
+      "Top of the morning to you, {name}", "The sun's up and so are you, {name}", "Morning, {name}. Let's ship some code today",
+      "Fresh morning, fresh commits, {name}", "Good morning, {name} — the realm missed you", "Wakey wakey, {name}",
+      "A new morning, a new quest, {name}", "Morning, {name}! First login of the day", "Bright and early, {name}",
+      "Good morning, brave {name}", "Sunrise session, {name}?", "Morning, {name} — the leaderboard awaits"
+    ],
+    flourishes: ["☀️", "🌅", "🔆", "🐣", "🥐", "⚔️", "✨", "🎮", "☕"]
+  },
+  afternoon: { // 12:00 – 16:59
+    phrases: [
+      "Good afternoon, {name}", "Hot afternoon energy, {name}", "Cold afternoon calm today, {name}",
+      "Afternoon, {name} — halfway through the day", "Sunny afternoon, {name}", "Breezy afternoon, {name}",
+      "Afternoon check-in, {name}", "Midday quest continues, {name}", "Good afternoon, {name} — keep that streak going",
+      "Afternoon grind, {name}", "Warm afternoon, {name}", "Cool afternoon, {name}",
+      "Afternoon, {name}! Back for more?", "The day's still young, {name}", "Afternoon, {name} — the arcade's open"
+    ],
+    flourishes: ["🌤️", "🔥", "❄️", "🌇", "🧊", "🛠️", "🕹️", "⚡", "🌻"]
+  },
+  evening: { // 17:00 – 20:59
+    phrases: [
+      "Good evening, {name}", "Evening, {name} — winding down or leveling up?", "The sky's turning gold, {name}",
+      "Evening arrives, {name}", "Good evening, {name} — the castle lights are on", "Evening session, {name}?",
+      "Dusk falls, {name}", "Evening, {name} — one more round?", "The day softens into evening, {name}",
+      "Good evening, {name} — welcome back", "Evening, brave {name}", "Twilight greetings, {name}",
+      "Evening, {name} — the terminal's warm and waiting", "Golden hour, {name}", "Evening, {name}. Almost K-night time"
+    ],
+    flourishes: ["🌇", "🌆", "🌙", "✨", "🕯️", "🛡️", "🎮", "🍂", "⭐"]
+  },
+  night: { // 21:00 – 4:59
+    phrases: [
+      "Good night, {name}", "Good K-night, {name}", "Merry dreams, {name}", "Sweet dreams, {name}",
+      "Sleep well, brave {name}", "The kingdom rests, {name}", "Night has fallen, {name}", "Good K-night, Sir {name}",
+      "One more quest before bed, {name}?", "Night owl mode, {name}", "Rest up, {name} — tomorrow's a new quest",
+      "Good night, {name}. May your dreams be legendary", "The stars are out, {name}", "Late night session, {name}?",
+      "Good K-night, {name} — sleep tight"
+    ],
+    flourishes: ["🌙", "✨", "⭐", "🌌", "🛌", "🦉", "😴", "🛡️", "🌠"]
+  }
+};
+function timeBucketNow() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return 'morning';
+  if (h >= 12 && h < 17) return 'afternoon';
+  if (h >= 17 && h < 21) return 'evening';
+  return 'night';
+}
+function pickGreeting(name) {
+  const bucket = KNIGHT_GREETING_BANK[timeBucketNow()];
+  const phrase = bucket.phrases[Math.floor(Math.random() * bucket.phrases.length)];
+  const flourish = bucket.flourishes[Math.floor(Math.random() * bucket.flourishes.length)];
+  return `${phrase.replace('{name}', name)} ${flourish} *`;
+}
+// Shown once per browser session — not on every page, click, or refresh.
+// sessionStorage (unlike localStorage) is wiped the moment the tab/browser
+// is actually closed, so closing the site and opening it again always rolls
+// a fresh greeting, while staying on the same tab never repeats it.
+function maybeShowSessionGreeting() {
+  if (sessionStorage.getItem('knight_greeted')) return;
+  sessionStorage.setItem('knight_greeted', '1');
+  const name = userState.username || 'Knight';
+  // Small delay so this lands after any toast the login/signup/guest flow
+  // already fired (e.g. "Guest account created"), instead of instantly
+  // overwriting it, and it stays up a little longer since it's the
+  // once-a-session welcome rather than a routine action confirmation.
+  setTimeout(() => showToast(pickGreeting(name), 4500), 700);
+}
+
 async function enterDashboard() {
   document.getElementById('auth').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
@@ -1804,6 +1956,7 @@ async function enterDashboard() {
   loadStudioUI();
   loadNotesUI();
   loadCommFriendsUI();
+  maybeShowSessionGreeting();
 
   // Restore whichever full-screen page the URL points at (direct link, refresh,
   // or the back/forward buttons) instead of always popping the profile modal.
@@ -1826,10 +1979,31 @@ async function enterDashboard() {
 // ============================================================
 // BOOT — resume an existing session if a token is already stored
 // ============================================================
+// Ask the server what it can actually do, and hide the controls it can't back.
+// A visible "Sign in with a Passkey" button that always errors is worse than no
+// button at all — the user cannot tell a missing feature from a broken one.
+async function detectBackendCapabilities() {
+  try {
+    const health = await api('/api/health');
+    const supportsPasskeys = health.runtime !== 'java';
+    if (!supportsPasskeys) {
+      document.getElementById('passkeyLoginBtn')?.style.setProperty('display', 'none');
+      const section = document.getElementById('passkeySection');
+      if (section) section.style.display = 'none';
+    }
+    console.info(`Backend: ${health.runtime || 'node'} — build ${health.build}`);
+  } catch (e) {
+    // If /api/health itself is unreachable the app has bigger problems, and the
+    // normal request path will surface them with a clearer message.
+    console.warn('Could not read /api/health:', e.message);
+  }
+}
+
 async function boot() {
   const savedDevice = localStorage.getItem('knight_device') || detectLikelyDevice();
   userState.device = savedDevice;
   applyDeviceCSS(savedDevice);
+  detectBackendCapabilities();
 
   wireHandheldControls();
   wireConsoleDpad();

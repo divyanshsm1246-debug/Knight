@@ -1,31 +1,32 @@
 services:
   - type: web
     name: knight-realmes
-    runtime: node
+    # Java has no package.json for Render to auto-detect, so we use a Docker
+    # image. The Dockerfile in this repo is three lines and pins the JDK.
+    runtime: docker
     plan: free
-    # NOTE ON THE "440" / RANDOM-LOOKING FAILURES: Render's free plan spins
-    # the service down after ~15 minutes with no traffic. The next request
-    # then has to cold-start the whole container, which can take 30-60s.
-    # If the browser or an in-between proxy gives up before that finishes,
-    # you'll see a network failure with no clean HTTP status — the client
-    # now retries once automatically and no longer signs you out over it,
-    # but the delay itself only goes away on a paid plan (no free-tier sleep)
-    # or by hitting the URL yourself to "warm" it before real traffic.
-    buildCommand: npm install
-    startCommand: node server.js
-    healthCheckPath: /
+    # NOTE ON SLOW FIRST REQUESTS: Render's free plan spins the service down
+    # after ~15 minutes with no traffic. The next request then cold-starts the
+    # container, which can take 30-60s. If the browser gives up before that
+    # finishes you'll see a network failure with no clean HTTP status. The
+    # delay only goes away on a paid plan, or by hitting the URL yourself to
+    # "warm" it before real traffic.
+    healthCheckPath: /api/health
     envVars:
+      # generateValue makes Render create this ONCE and keep it fixed. That
+      # matters enormously: if JWT_SECRET ever changes, every token already in
+      # every user's browser becomes invalid at once and everybody is silently
+      # signed out. Never set this by hand to a new value on a live service.
       - key: JWT_SECRET
         generateValue: true
-      - key: NODE_VERSION
-        value: 20.11.0
-    # Render's free web services use an EPHEMERAL filesystem — data.json
-    # (created by database.js) will be wiped on every redeploy or restart.
-    # To keep real data across deploys, attach a persistent disk:
+      - key: DATA_DIR
+        value: /data
+    # Render's free web services use an EPHEMERAL filesystem — data.json would
+    # be wiped on every redeploy or restart, taking all accounts with it. This
+    # disk is what makes "sign up, come back next week, still signed in" true
+    # rather than just true-until-the-next-deploy. DATA_DIR above points the
+    # storage layer at it.
     disks:
       - name: knight-data
         mountPath: /data
         sizeGB: 1
-    # ...and set DATA_DIR=/data as an extra env var in the Render dashboard
-    # (Environment tab) once the disk is attached, so database.js writes
-    # data.json there instead of the ephemeral app folder.
