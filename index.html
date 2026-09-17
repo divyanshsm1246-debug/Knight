@@ -506,13 +506,48 @@
       <label class="font-mono">Starting Files (optional)</label>
       <div class="dropzone" id="newProjDrop">
         <input type="file" id="newProjFiles" multiple style="display:none;">
+        <input type="file" id="newProjFolder" webkitdirectory directory multiple style="display:none;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <p><b>Choose files</b> or drag them here</p>
-        <span>index.html, style.css, script.js, .py, .md — text files up to 2 MB each</span>
+        <p><b>Choose files</b> or drag a folder here</p>
+        <span>Keeps your folder structure, like importing a repo. Skips node_modules, .git, dist automatically.</span>
+        <div class="dropzone-btns">
+          <button type="button" class="nav-cta" onclick="event.stopPropagation(); document.getElementById('newProjFiles').click();">Choose Files</button>
+          <button type="button" class="nav-cta" onclick="event.stopPropagation(); document.getElementById('newProjFolder').click();">Choose Folder</button>
+        </div>
       </div>
-      <div id="newProjFileList" class="upload-list"></div>
+      <div id="newProjUploadSummary" class="upload-summary"></div>
+      <div id="newProjFileList" class="file-tree"></div>
     </div>
     <button class="submit-btn" style="width:100%;" onclick="createProjectUI()">Create</button>
+  </div>
+</div>
+
+<!-- Quick look at one uploaded file before the project exists -->
+<div class="modal-overlay" id="pendingFilePreviewModal">
+  <div class="modal-content" style="max-width:640px;">
+    <svg class="close-modal" onclick="closeModal('pendingFilePreviewModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 class="font-mono" id="pendingPreviewName" style="margin-bottom:14px;"></h2>
+    <textarea id="pendingPreviewContent" class="file-editor-textarea" style="min-height:320px;"></textarea>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:14px;">
+      <button class="nav-cta" style="color:var(--accent-coral);" onclick="removePendingFileFromPreview()">Remove File</button>
+      <button class="nav-cta btn-golden" onclick="savePendingFilePreview()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Asked once per project the first time it needs a service key (Supabase, Firebase, etc.) -->
+<div class="modal-overlay" id="secretsModal">
+  <div class="modal-content" style="max-width:520px;">
+    <svg class="close-modal" onclick="cancelSecretsPrompt()" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 style="margin-bottom:6px;">Connect required services</h2>
+    <p style="font-size:.83rem; color:var(--text-secondary); margin-bottom:18px;">
+      Knight found code in this project that talks to <b id="secretsServiceNames"></b>. Those need keys to actually connect. Keys are stored only in this browser, on this project — never sent anywhere by Knight.
+    </p>
+    <div id="secretsFieldList" style="display:flex; flex-direction:column; gap:12px; margin-bottom:18px;"></div>
+    <div style="display:flex; gap:10px;">
+      <button class="nav-cta" style="flex:1;" onclick="skipSecretsPrompt()">Run without them</button>
+      <button class="submit-btn" style="flex:1;" onclick="submitSecretsPrompt()">Save &amp; Continue</button>
+    </div>
   </div>
 </div>
 
@@ -897,6 +932,20 @@
 
   <div class="shortcut-category-label">Account</div>
   <button class="nav-cta" style="color:var(--accent-coral);" onclick="signOutUI()">Sign Out</button>
+
+  <!-- ===== Storage ===== -->
+  <div class="shortcut-category-label" style="margin-top:28px;">Storage on this device</div>
+  <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px; max-width:640px;">
+    Everything in Knight — your account, projects, files, notes, and chat — lives in this browser's local storage, not on a server. This shows exactly what's stored and lets you keep it tidy.
+  </p>
+  <div id="storageUsageBar" class="storage-usage-bar"><div id="storageUsageFill" class="storage-usage-fill"></div></div>
+  <div id="storageUsageLabel" class="storage-usage-label"></div>
+  <div id="storageBreakdown" class="storage-breakdown"></div>
+  <div class="storage-actions">
+    <button class="nav-cta" onclick="extractDataSheet()">Export My Data (.json)</button>
+    <button class="nav-cta" id="purgeGuestsBtn" onclick="purgeOldGuestsUI()">Purge Old Guest Accounts</button>
+    <button class="nav-cta" style="color:var(--accent-coral);" onclick="wipeAllStorageUI()">Wipe Everything On This Device</button>
+  </div>
 </div>
 
 <!-- ================= Game Booster ================= -->
@@ -936,6 +985,12 @@
     <div class="page-back" onclick="stopPreview(); closeKnightPage('previewPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
     <div class="page-title" id="previewTitle">Live Preview</div>
     <span class="server-pill" id="previewServerPill">server offline</span>
+    <button class="nav-cta" onclick="stopPreview(); openProjectDetail(server.projectId)" style="margin-left:8px;">Manage Files &amp; Team</button>
+  </div>
+
+  <div id="buildBanner" class="build-banner" style="display:none;">
+    <span class="build-spinner"></span>
+    <span id="buildBannerText">Building…</span>
   </div>
 
   <div class="preview-toolbar">

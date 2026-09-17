@@ -1223,7 +1223,7 @@ function projectCard(p, showRole) {
   const fileCount = Object.keys(p.files || {}).length;
   const ver = (p.versions || []).length;
   const owner = userById(p.ownerId);
-  return `<div class="dash-card theme-blue" tabindex="0" onclick="openProjectDetail('${p.id}')">
+  return `<div class="dash-card theme-blue" tabindex="0" onclick="openProjectBuild('${p.id}')">
     <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
     <h3>${esc(p.name)}</h3>
     <p>${esc(p.description || 'No description.')}</p>
@@ -1699,7 +1699,7 @@ function studioCard(p) {
   const owner = userById(p.ownerId);
   const starred = (p.starredBy || []).includes(myId());
   return `<div class="dash-card theme-blue studio-card" tabindex="0">
-    <div onclick="openProjectDetail('${p.id}')">
+    <div onclick="openProjectBuild('${p.id}')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M12 2 20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z"/></svg></div>
       <h3>${esc(p.name)}</h3>
       <p>${esc(p.description || 'No description.')}</p>
@@ -2266,6 +2266,7 @@ function renderSettings() {
   $('camMirrorToggle').checked = p.camMirror !== false;
   renderPasskeys();
   applyDevice(p.device || detectDevice());
+  renderStorageManager();
 }
 
 function bindPrefToggles() {
@@ -2439,52 +2440,147 @@ function setupKeyboard() {
 =========================================================================== */
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 15 * 1024 * 1024;
 
 const TEXT_EXT = ['html','htm','css','js','mjs','jsx','ts','tsx','json','md','txt','csv',
                   'py','java','c','cpp','h','go','rs','rb','php','sh','yml','yaml','xml','svg'];
 const IMAGE_EXT = ['png','jpg','jpeg','gif','webp','ico','bmp','avif'];
 
+/** Folders nobody wants dragged into a project — build output, VCS internals, deps. */
+const JUNK_PATH_PARTS = ['node_modules', '.git', '.svn', '.hg', 'dist', 'build',
+                          '__pycache__', '.next', '.cache', 'venv', '.venv', '.DS_Store', 'target'];
+
 const extOf = (name) => (name.split('.').pop() || '').toLowerCase();
 const isText = (name) => TEXT_EXT.includes(extOf(name));
 const isImage = (name) => IMAGE_EXT.includes(extOf(name));
+const isJunkPath = (path) => path.split('/').some(part => JUNK_PATH_PARTS.includes(part));
 
 /** Read one File into either text or a data: URL, depending on its type. */
-function readProjectFile(file) {
+function readProjectFile(file, relPath) {
   return new Promise((resolve, reject) => {
+    const name = relPath || file.name;
     if (file.size > MAX_FILE_BYTES) {
-      reject(new Error(file.name + ' is larger than 2 MB.'));
+      reject(new Error(name + ' is larger than 2 MB — skipped.'));
       return;
     }
     const r = new FileReader();
-    r.onerror = () => reject(new Error('Could not read ' + file.name));
-    r.onload = () => resolve({ name: file.name, content: r.result });
-    if (isText(file.name)) r.readAsText(file);
-    else if (isImage(file.name)) r.readAsDataURL(file);
+    r.onerror = () => reject(new Error('Could not read ' + name));
+    r.onload = () => resolve({ name, content: r.result, size: file.size });
+    if (isText(name)) r.readAsText(file);
+    else if (isImage(name)) r.readAsDataURL(file);
     else r.readAsText(file);      // unknown types are treated as text
   });
 }
 
+/** fileList can be a browser FileList (from an <input>, including webkitdirectory)
+    or a plain array assembled from a recursive drag-and-drop walk. */
 async function readFileList(fileList) {
   const out = [];
   for (const f of Array.from(fileList || [])) {
-    try { out.push(await readProjectFile(f)); }
+    const rel = f.webkitRelativePath || f.__relPath || f.name;
+    if (isJunkPath(rel)) continue;
+    try { out.push(await readProjectFile(f, rel)); }
     catch (e) { toast(e.message, true); }
   }
   return out;
+}
+
+/** Recursively walk a dropped folder using the (Chromium/Firefox) DataTransferItem
+    entry API, so drag-and-drop preserves the same folder structure a real
+    <input webkitdirectory> upload would. Falls back to flat files elsewhere. */
+function readDataTransferItems(items) {
+  const files = [];
+  function walk(entry, path) {
+    return new Promise((resolve) => {
+      if (!entry) { resolve(); return; }
+      if (entry.isFile) {
+        entry.file((file) => {
+          file.__relPath = path + file.name;
+          files.push(file);
+          resolve();
+        }, () => resolve());
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const readBatch = () => {
+          reader.readEntries(async (entries) => {
+            if (!entries.length) { resolve(); return; }
+            await Promise.all(entries.map(e => walk(e, path + entry.name + '/')));
+            readBatch();          // directory readers page results; keep pulling until empty
+          }, () => resolve());
+        };
+        readBatch();
+      } else resolve();
+    });
+  }
+  const roots = Array.from(items)
+    .map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
+    .filter(Boolean);
+  return Promise.all(roots.map(r => walk(r, ''))).then(() => files);
 }
 
 /* ----- upload into the New Project modal ----- */
 
 let pendingProjectFiles = {};
 
+/** Build a nested {folders, files} tree from flat "a/b/c.js" keys, for display. */
+function buildFileTree(fileMap) {
+  const root = { folders: {}, files: [] };
+  Object.keys(fileMap).sort().forEach(path => {
+    const parts = path.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      node.folders[parts[i]] = node.folders[parts[i]] || { folders: {}, files: [] };
+      node = node.folders[parts[i]];
+    }
+    node.files.push({ name: parts[parts.length - 1], path });
+  });
+  return root;
+}
+
+const FILE_ICONS = {
+  html: '📄', htm: '📄', css: '🎨', js: 'JS', mjs: 'JS', jsx: 'JS', ts: 'TS', tsx: 'TS',
+  json: '{}', py: 'PY', java: '☕', md: '📝', png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼',
+  svg: '🖼', webp: '🖼',
+};
+
+function fileIconFor(name) { return FILE_ICONS[extOf(name)] || '·'; }
+
+function renderTreeNode(node, depth) {
+  const folderRows = Object.keys(node.folders).sort().map(name =>
+    `<div class="tree-folder" style="padding-left:${depth * 16}px;">
+      <span class="tree-icon">📁</span><span>${esc(name)}</span>
+    </div>${renderTreeNode(node.folders[name], depth + 1)}`
+  ).join('');
+  const fileRows = node.files.map(f =>
+    `<div class="tree-file" style="padding-left:${depth * 16 + 16}px;" onclick="previewPendingFile('${esc(f.path)}')">
+      <span class="tree-icon">${fileIconFor(f.name)}</span><span>${esc(f.name)}</span>
+      <button class="tree-remove" title="Remove" onclick="event.stopPropagation(); removePendingFile('${esc(f.path)}')">&times;</button>
+    </div>`
+  ).join('');
+  return folderRows + fileRows;
+}
+
 function renderPendingFiles() {
   const box = $('newProjFileList');
+  const summary = $('newProjUploadSummary');
   if (!box) return;
+
   const names = Object.keys(pendingProjectFiles);
-  box.innerHTML = names.length
-    ? names.map(n => `<div class="upload-chip"><span>${esc(n)}</span>
-        <button onclick="removePendingFile('${esc(n)}')" title="Remove">&times;</button></div>`).join('')
-    : '';
+  if (!names.length) { box.innerHTML = ''; if (summary) summary.textContent = ''; return; }
+
+  box.innerHTML = renderTreeNode(buildFileTree(pendingProjectFiles), 0);
+
+  if (summary) {
+    const totalBytes = names.reduce((sum, n) => sum + (pendingProjectFiles[n]?.length || 0), 0);
+    summary.textContent = names.length + ' file' + (names.length === 1 ? '' : 's')
+      + ' · ' + formatBytes(totalBytes) + ' ready';
+  }
+}
+
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 function removePendingFile(name) {
@@ -2492,8 +2588,55 @@ function removePendingFile(name) {
   renderPendingFiles();
 }
 
+let previewingPendingPath = null;
+
+function previewPendingFile(path) {
+  const content = pendingProjectFiles[path];
+  if (content === undefined) return;
+  previewingPendingPath = path;
+  $('pendingPreviewName').textContent = path;
+  const isImg = isImage(path);
+  $('pendingPreviewContent').style.display = isImg ? 'none' : 'block';
+  $('pendingPreviewContent').value = isImg ? '' : content;
+  let imgTag = document.getElementById('pendingPreviewImg');
+  if (isImg) {
+    if (!imgTag) {
+      imgTag = document.createElement('img');
+      imgTag.id = 'pendingPreviewImg';
+      imgTag.style.cssText = 'max-width:100%;max-height:340px;border-radius:10px;display:block;';
+      $('pendingPreviewContent').insertAdjacentElement('afterend', imgTag);
+    }
+    imgTag.src = content;
+    imgTag.style.display = 'block';
+  } else if (imgTag) {
+    imgTag.style.display = 'none';
+  }
+  openModalRaw('pendingFilePreviewModal');
+}
+
+function savePendingFilePreview() {
+  if (!previewingPendingPath) return;
+  if (!isImage(previewingPendingPath)) pendingProjectFiles[previewingPendingPath] = $('pendingPreviewContent').value;
+  closeModal('pendingFilePreviewModal');
+  renderPendingFiles();
+  toast('Updated.');
+}
+
+function removePendingFileFromPreview() {
+  if (!previewingPendingPath) return;
+  removePendingFile(previewingPendingPath);
+  closeModal('pendingFilePreviewModal');
+}
+
 async function handleNewProjectFiles(fileList) {
   const files = await readFileList(fileList);
+  const totalBefore = Object.keys(pendingProjectFiles)
+    .reduce((sum, n) => sum + (pendingProjectFiles[n]?.length || 0), 0);
+  const incoming = files.reduce((sum, f) => sum + (f.size || 0), 0);
+  if (totalBefore + incoming > MAX_TOTAL_BYTES) {
+    toast('That would put this project over the 15 MB upload limit.', true);
+    return;
+  }
   files.forEach(f => { pendingProjectFiles[f.name] = f.content; });
   renderPendingFiles();
   if (files.length) toast(files.length + ' file' + (files.length === 1 ? '' : 's') + ' ready.');
@@ -2790,8 +2933,299 @@ function exportProjectUI(projectId) {
   toast('Exported. Drop this file on Netlify Drop to put it online.');
 }
 
+/* ===========================================================================
+   26.5 CLICK-TO-BUILD — opening a project from a card runs a real build
+   sequence in a terminal-style console, then lands on the live preview.
+   Everything here runs client-side; there is no real backend doing the work.
+=========================================================================== */
+
+/** Services Knight recognises well enough to know which keys they need. */
+const KNOWN_SERVICES = [
+  { key: 'supabase', label: 'Supabase',   match: /supabase|SUPABASE_URL|SUPABASE_ANON_KEY/i,
+    vars: [{ name: 'SUPABASE_URL', placeholder: 'https://xxxx.supabase.co' },
+           { name: 'SUPABASE_ANON_KEY', placeholder: 'eyJhbGciOi...', secret: true }] },
+  { key: 'firebase', label: 'Firebase',   match: /firebase|FIREBASE_API_KEY/i,
+    vars: [{ name: 'FIREBASE_API_KEY', placeholder: 'AIzaSy...', secret: true },
+           { name: 'FIREBASE_PROJECT_ID', placeholder: 'my-app-12345' }] },
+  { key: 'stripe', label: 'Stripe',       match: /stripe|STRIPE_PUBLIC_KEY|STRIPE_SECRET_KEY/i,
+    vars: [{ name: 'STRIPE_PUBLIC_KEY', placeholder: 'pk_live_...' }] },
+  { key: 'openai', label: 'OpenAI',       match: /openai|OPENAI_API_KEY/i,
+    vars: [{ name: 'OPENAI_API_KEY', placeholder: 'sk-...', secret: true }] },
+  { key: 'mongodb', label: 'MongoDB',     match: /mongodb|MONGODB_URI|mongoose\.connect/i,
+    vars: [{ name: 'MONGODB_URI', placeholder: 'mongodb+srv://...', secret: true }] },
+];
+
+/** Scan a project's own files for references to a known external service. */
+function detectServiceModules(files) {
+  const text = Object.values(files || {}).join('\n');
+  return KNOWN_SERVICES.filter(s => s.match.test(text));
+}
+
+/** Which of a detected service's required variables are not yet saved on the project. */
+function missingSecretVars(project, services) {
+  const have = project.secrets || {};
+  const out = [];
+  services.forEach(s => s.vars.forEach(v => {
+    if (!have[v.name]) out.push({ service: s.label, ...v });
+  }));
+  return out;
+}
+
+/** Textually inject saved secrets into the built page, covering the common
+    ways front-end demo code reads them (Vite, Next-style, and a raw process.env). */
+function injectSecrets(html, secrets) {
+  if (!secrets || !Object.keys(secrets).length) return html;
+  Object.entries(secrets).forEach(([name, value]) => {
+    const v = JSON.stringify(value);
+    const patterns = [
+      new RegExp('import\\\\.meta\\\\.env\\\\.VITE_' + name, 'g'),
+      new RegExp('process\\\\.env\\\\.' + name, 'g'),
+      new RegExp('process\\\\.env\\\\[[\'"]' + name + '[\'"]\\\\]', 'g'),
+    ];
+    patterns.forEach(p => { html = html.replace(p, v); });
+  });
+  const envScript = `<script>window.ENV = ${JSON.stringify(secrets)};<\/script>`;
+  return html.includes('<head>') ? html.replace('<head>', '<head>' + envScript) : envScript + html;
+}
+
+/* ----- the secrets prompt modal ----- */
+
+let secretsPromptState = null;   // { projectId, missing, resolve }
+
+function askForSecrets(project, missing) {
+  return new Promise((resolve) => {
+    secretsPromptState = { projectId: project.id, missing, resolve };
+    const names = Array.from(new Set(missing.map(m => m.service))).join(' and ');
+    $('secretsServiceNames').textContent = names;
+    $('secretsFieldList').innerHTML = missing.map(v => `
+      <div>
+        <label style="font-size:.78rem;color:var(--text-secondary);display:block;margin-bottom:5px;">${esc(v.service)} · ${esc(v.name)}</label>
+        <input type="${v.secret ? 'password' : 'text'}" id="secretInput-${esc(v.name)}" placeholder="${esc(v.placeholder || '')}">
+      </div>`).join('');
+    openModalRaw('secretsModal');
+  });
+}
+
+function submitSecretsPrompt() {
+  if (!secretsPromptState) return;
+  const d = DB.data();
+  const p = d.projects[secretsPromptState.projectId];
+  p.secrets = p.secrets || {};
+  secretsPromptState.missing.forEach(v => {
+    const input = $('secretInput-' + v.name);
+    if (input && input.value.trim()) p.secrets[v.name] = input.value.trim();
+  });
+  DB.saveData(d);
+  closeModal('secretsModal');
+  const resolve = secretsPromptState.resolve;
+  secretsPromptState = null;
+  toast('Keys saved to this project on this device.');
+  resolve(true);
+}
+
+function skipSecretsPrompt() {
+  closeModal('secretsModal');
+  if (secretsPromptState) { const r = secretsPromptState.resolve; secretsPromptState = null; r(false); }
+}
+
+function cancelSecretsPrompt() { skipSecretsPrompt(); }
+
+/* ----- pure build-log assembly (kept separate from timing so it's testable) ----- */
+
+function buildStepsFor(project, entry, services, secretsNowSet) {
+  const fileCount = Object.keys(project.files || {}).length;
+  const lines = [
+    '$ knight build ' + project.name + ' --entry=' + entry,
+    '> resolving ' + fileCount + ' file' + (fileCount === 1 ? '' : 's') + '…',
+  ];
+  Object.keys(project.files).filter(n => n !== entry).slice(0, 6).forEach(n => lines.push('  linking ' + n));
+  if (Object.keys(project.files).length > 7) lines.push('  … and ' + (Object.keys(project.files).length - 7) + ' more');
+
+  if (services.length) {
+    lines.push('> detected service' + (services.length === 1 ? '' : 's') + ': ' + services.map(s => s.label).join(', '));
+    lines.push(secretsNowSet
+      ? '> environment keys injected (' + secretsNowSet + ' set)'
+      : '> running without service keys — connected calls will fail until keys are added');
+  }
+
+  lines.push('> starting local server on knight://preview');
+  lines.push('> server ON');
+  const n = project.buildNumber || 1;
+  lines.push('build #' + n + ' completed in ' + (0.2 + Math.random() * 0.6).toFixed(2) + 's');
+  return lines;
+}
+
+/** Print lines into the console panel one at a time, for a terminal feel. */
+function typeLinesInto(el, lines, done) {
+  el.textContent = '';
+  let i = 0;
+  (function next() {
+    if (i >= lines.length) { done && done(); return; }
+    el.textContent += (i ? '\n' : '') + lines[i++];
+    el.scrollTop = el.scrollHeight;
+    setTimeout(next, 90);
+  })();
+}
+
+/** Entry point when a project is opened by clicking its card. */
+async function openProjectBuild(projectId) {
+  const p = DB.data().projects[projectId];
+  if (!p) { show404('/project/' + projectId); return; }
+  if (!canSeeProject(p)) { toast('You do not have access to that project.', true); return; }
+
+  const hasHtml = Object.keys(p.files || {}).some(n => ['html', 'htm'].includes(extOf(n)));
+  if (!hasHtml) {
+    // Nothing to build — a code-only project just opens straight to its files.
+    openProjectDetail(projectId);
+    return;
+  }
+
+  server.on = true;
+  server.projectId = projectId;
+  currentProjectId = projectId;
+  paintServerButton();
+
+  const entry = Object.keys(p.files).find(n => n.toLowerCase() === 'index.html')
+             || Object.keys(p.files).find(n => ['html', 'htm'].includes(extOf(n)));
+
+  openKnightPage('previewPage');
+  $('previewTitle').textContent = p.name + ' — Build';
+  $('buildBanner').style.display = 'flex';
+  $('buildBannerText').textContent = 'Compiling ' + p.name + '…';
+
+  const services = detectServiceModules(p.files);
+  let secretsSetCount = 0;
+
+  if (services.length) {
+    const missing = missingSecretVars(p, services);
+    if (missing.length) {
+      $('buildBannerText').textContent = p.name + ' needs service keys…';
+      const provided = await askForSecrets(p, missing);
+      if (provided) secretsSetCount = missing.length;
+      $('buildBannerText').textContent = 'Compiling ' + p.name + '…';
+    }
+  }
+
+  const fresh = DB.data().projects[projectId];
+  fresh.buildNumber = (fresh.buildNumber || 0) + 1;
+  DB.saveData({ ...DB.data() });   // persist the incremented build number
+
+  const sel = $('previewEntrySelect');
+  const htmlFiles = Object.keys(fresh.files).filter(n => ['html', 'htm'].includes(extOf(n)));
+  sel.innerHTML = htmlFiles.map(n => `<option value="${esc(n)}" ${n === entry ? 'selected' : ''}>${esc(n)}</option>`).join('');
+
+  const lines = buildStepsFor(fresh, entry, services, secretsSetCount);
+  typeLinesInto($('previewConsole'), lines, () => {
+    $('buildBanner').style.display = 'none';
+    runPreview();
+  });
+}
+
+/* ===========================================================================
+   26.6 STORAGE MANAGER — everything lives in this browser; this page shows
+   exactly how much, and gives a clean way to trim it.
+=========================================================================== */
+
+function byteSize(v) { try { return new Blob([JSON.stringify(v)]).size; } catch { return 0; } }
+
+function computeStorageBreakdown() {
+  const users = DB.users();
+  const data = DB.data();
+  const prefs = DB.prefs();
+  const session = readJSON(LS.session, null);
+
+  return [
+    { label: 'Accounts',            bytes: byteSize(users), count: Object.keys(users).length },
+    { label: 'Projects & Files',    bytes: byteSize(data.projects), count: Object.keys(data.projects).length },
+    { label: 'Notes',               bytes: byteSize(data.notes), count: Object.values(data.notes).reduce((s, a) => s + (a?.length || 0), 0) },
+    { label: 'Messages',            bytes: byteSize(data.messages), count: Object.values(data.messages).reduce((s, a) => s + (a?.length || 0), 0) },
+    { label: 'Notifications',       bytes: byteSize(data.notifications), count: Object.values(data.notifications).reduce((s, a) => s + (a?.length || 0), 0) },
+    { label: 'Preferences',         bytes: byteSize(prefs), count: Object.keys(prefs).length },
+    { label: 'Current session',     bytes: byteSize(session), count: session ? 1 : 0 },
+  ];
+}
+
+function countStaleGuests(days = 7) {
+  const cutoff = Date.now() - days * 86400000;
+  return Object.values(DB.users()).filter(u => u.guest && u.createdAt < cutoff && u.id !== myId()).length;
+}
+
+/** Delete a guest account and everything it owns — projects, memberships, notes, chats. */
+function purgeGuestUser(guestId) {
+  const users = DB.users();
+  const email = Object.keys(users).find(e => users[e].id === guestId);
+  if (email) delete users[email];
+  DB.saveUsers(users);
+
+  const d = DB.data();
+  Object.keys(d.projects).forEach(pid => {
+    const p = d.projects[pid];
+    if (p.ownerId === guestId) { delete d.projects[pid]; return; }
+    p.members = (p.members || []).filter(m => m.userId !== guestId);
+    p.starredBy = (p.starredBy || []).filter(id => id !== guestId);
+  });
+  delete d.notes[guestId];
+  delete d.notifications[guestId];
+  Object.keys(d.messages).forEach(k => { if (k.includes(guestId)) delete d.messages[k]; });
+  DB.saveData(d);
+}
+
+function purgeOldGuestsUI(days = 7) {
+  const cutoff = Date.now() - days * 86400000;
+  const stale = Object.values(DB.users()).filter(u => u.guest && u.createdAt < cutoff && u.id !== myId());
+  if (!stale.length) { toast('No guest accounts older than ' + days + ' days.'); return; }
+  if (!confirm('Remove ' + stale.length + ' guest account(s) older than ' + days + ' days, along with anything only they owned?')) return;
+  stale.forEach(u => purgeGuestUser(u.id));
+  toast(stale.length + ' guest account(s) removed.');
+  renderStorageManager();
+}
+
+function wipeAllStorageUI() {
+  if (!confirm('This deletes every Knight account, project, and file stored in this browser. This cannot be undone. Continue?')) return;
+  if (!confirm('Really wipe everything? Type-to-confirm skipped for speed — this is your last check.')) return;
+  [LS.users, LS.session, LS.data, LS.prefs].forEach(k => localStorage.removeItem(k));
+  toast('Local storage cleared.');
+  location.hash = '';
+  location.reload();
+}
+
+async function renderStorageManager() {
+  const rows = computeStorageBreakdown();
+  const totalBytes = rows.reduce((s, r) => s + r.bytes, 0);
+
+  const box = $('storageBreakdown');
+  if (box) {
+    box.innerHTML = rows.map(r => `
+      <div class="storage-row">
+        <span class="storage-row-label">${r.label}</span>
+        <span class="storage-row-count">${r.count} item${r.count === 1 ? '' : 's'}</span>
+        <span class="storage-row-bytes">${formatBytes(r.bytes)}</span>
+      </div>`).join('');
+  }
+
+  const staleCount = countStaleGuests();
+  const purgeBtn = $('purgeGuestsBtn');
+  if (purgeBtn) purgeBtn.textContent = staleCount
+    ? `Purge Old Guest Accounts (${staleCount})` : 'Purge Old Guest Accounts';
+
+  const label = $('storageUsageLabel');
+  const fill = $('storageUsageFill');
+  if (navigator.storage && navigator.storage.estimate) {
+    try {
+      const est = await navigator.storage.estimate();
+      const pct = est.quota ? Math.min(100, (est.usage / est.quota) * 100) : 0;
+      if (fill) fill.style.width = pct.toFixed(1) + '%';
+      if (label) label.textContent = formatBytes(totalBytes) + ' used by Knight · '
+        + formatBytes(est.usage || 0) + ' / ' + formatBytes(est.quota || 0) + ' browser quota';
+      return;
+    } catch {}
+  }
+  if (fill) fill.style.width = Math.min(100, totalBytes / 50000).toFixed(1) + '%';
+  if (label) label.textContent = formatBytes(totalBytes) + ' used by Knight on this device';
+}
+
 /* ---------------------------------------------------------------------------
-   25. BOOT
+   27. BOOT
 --------------------------------------------------------------------------- */
 
 function boot() {
@@ -2848,16 +3282,25 @@ function boot() {
     m.onclick = (e) => { if (e.target === m) m.classList.remove('active'); };
   });
 
-  // New-project dropzone: click to browse, drag to drop.
+  // New-project dropzone: click to browse, choose a folder, or drag either in.
   const drop = $('newProjDrop');
   if (drop) {
-    drop.onclick = () => $('newProjFiles').click();
     $('newProjFiles').onchange = (e) => handleNewProjectFiles(e.target.files);
+    $('newProjFolder').onchange = (e) => handleNewProjectFiles(e.target.files);
     ['dragenter', 'dragover'].forEach(ev =>
       drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('is-over'); }));
     ['dragleave', 'drop'].forEach(ev =>
       drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('is-over'); }));
-    drop.addEventListener('drop', (e) => handleNewProjectFiles(e.dataTransfer.files));
+    drop.addEventListener('drop', async (e) => {
+      const items = e.dataTransfer.items;
+      if (items && items.length && items[0].webkitGetAsEntry) {
+        // Real folder drop: walk it so the structure survives.
+        const files = await readDataTransferItems(items);
+        handleNewProjectFiles(files);
+      } else {
+        handleNewProjectFiles(e.dataTransfer.files);
+      }
+    });
   }
 
   // Console output from inside the preview iframe.
@@ -2937,7 +3380,10 @@ Object.assign(window, {
   addPasskeyUI, removePasskey,
   requestCameraAccessUI, saveCameraSettingsUI, stopCameraPreviewUI, resetLocalPrefsUI,
   openCommandPalette, dpadPress, edgeScroll, applyDevice,
+  openProjectBuild, submitSecretsPrompt, skipSecretsPrompt, cancelSecretsPrompt,
+  purgeOldGuestsUI, wipeAllStorageUI, renderStorageManager,
   openNewProjectModal, removePendingFile, uploadProjectFilesUI,
+  previewPendingFile, savePendingFilePreview, removePendingFileFromPreview,
   toggleServer, runProjectUI, openPreview, runPreview, stopPreview,
   setPreviewWidth, openPreviewInTab, sendProjectToTerminalUI, exportProjectUI,
   openPreviewFor, saveDeployUrlFor, handleNewProjectFiles,

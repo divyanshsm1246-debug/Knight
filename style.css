@@ -706,3 +706,91 @@ body.device-smartphone .server-toggle{ right:14px; bottom:14px; padding:10px 14p
   color:var(--accent-green); background:rgba(108,154,139,.12); border-color:rgba(108,154,139,.3);
 }
 .deploy-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+
+/* ============================================================
+   GITHUB-STYLE FILE TREE UPLOAD
+   ============================================================ */
+
+.dropzone-btns{ display:flex; gap:8px; margin-top:8px; }
+.dropzone-btns .nav-cta{ font-size:.74rem; padding:7px 14px; }
+.dropzone{ cursor:default; }
+
+.upload-summary{
+  font-size:.74rem; color:var(--text-tertiary); font-family:'JetBrains Mono',monospace;
+  margin-top:10px;
+}
+
+.file-tree{
+  margin-top:8px; max-height:260px; overflow-y:auto;
+  border:1px solid var(--panel-border); border-radius:12px;
+  background:rgba(0,0,0,.2);
+}
+.file-tree:empty{ border:none; background:none; }
+.file-tree::-webkit-scrollbar{ width:6px; }
+.file-tree::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.12); border-radius:3px; }
+
+.tree-folder{
+  display:flex; align-items:center; gap:8px; padding:7px 12px;
+  font-size:.78rem; color:var(--text-tertiary); font-weight:600;
+}
+.tree-file{
+  display:flex; align-items:center; gap:8px; padding:7px 12px;
+  font-size:.8rem; color:var(--text-secondary); cursor:pointer;
+  font-family:'JetBrains Mono',monospace; transition:background .15s;
+}
+.tree-file:hover{ background:rgba(255,255,255,.045); color:var(--text-primary); }
+.tree-icon{ width:18px; text-align:center; font-size:.72rem; flex-shrink:0; opacity:.85; }
+.tree-remove{
+  margin-left:auto; background:none; border:none; cursor:pointer;
+  color:var(--text-tertiary); font-size:1rem; line-height:1; padding:0 4px; opacity:0;
+  transition:opacity .15s, color .15s;
+}
+.tree-file:hover .tree-remove{ opacity:1; }
+.tree-remove:hover{ color:var(--accent-coral); }
+
+/* ============================================================
+   BUILD CONSOLE + STORAGE MANAGER
+   ============================================================ */
+
+.build-banner{
+  display:flex; align-items:center; gap:10px; margin-bottom:14px;
+  padding:10px 16px; border-radius:12px;
+  background:rgba(243,198,35,.08); border:1px solid rgba(243,198,35,.24);
+  font-size:.82rem; color:var(--accent-gold);
+}
+.build-spinner{
+  width:14px; height:14px; border-radius:50%; flex-shrink:0;
+  border:2px solid rgba(243,198,35,.25); border-top-color:var(--accent-gold);
+  animation:buildSpin .8s linear infinite;
+}
+@keyframes buildSpin{ to{ transform:rotate(360deg); } }
+
+.storage-usage-bar{
+  width:100%; max-width:640px; height:8px; border-radius:5px; overflow:hidden;
+  background:rgba(255,255,255,.06); margin-bottom:8px;
+}
+.storage-usage-fill{
+  height:100%; width:0%; border-radius:5px;
+  background:linear-gradient(90deg, var(--accent-gold), var(--accent-coral));
+  transition:width .4s;
+}
+.storage-usage-label{
+  font-size:.74rem; color:var(--text-tertiary); font-family:'JetBrains Mono',monospace;
+  margin-bottom:18px;
+}
+.storage-breakdown{
+  display:flex; flex-direction:column; gap:2px; max-width:640px;
+  border:1px solid var(--panel-border); border-radius:12px; overflow:hidden; margin-bottom:18px;
+}
+.storage-row{
+  display:flex; align-items:center; gap:12px; padding:10px 14px;
+  background:rgba(255,255,255,.015); font-size:.82rem;
+}
+.storage-row:nth-child(even){ background:rgba(255,255,255,.03); }
+.storage-row-label{ color:var(--text-primary); flex:1; }
+.storage-row-count{ color:var(--text-tertiary); font-size:.74rem; }
+.storage-row-bytes{
+  font-family:'JetBrains Mono',monospace; color:var(--text-secondary);
+  min-width:64px; text-align:right;
+}
+.storage-actions{ display:flex; gap:10px; flex-wrap:wrap; }
