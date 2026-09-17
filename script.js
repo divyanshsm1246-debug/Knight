@@ -614,6 +614,7 @@ function show404(badPath) {
   $('notFoundPath').textContent = badPath || location.hash || '/';
   page.classList.add('active');
   window.scrollTo(0, 0);
+  updateServerButtonContext(null);
 }
 
 function handleRoute() {
@@ -647,6 +648,7 @@ function openDashboard() {
   $('notFoundPage').classList.remove('active');
   $('dashboard').style.display = 'block';
   window.scrollTo(0, 0);
+  updateServerButtonContext(null);
 }
 
 function goHome() { navigate('home'); openDashboard(); }
@@ -654,6 +656,14 @@ function goHome() { navigate('home'); openDashboard(); }
 /* ---------------------------------------------------------------------------
    8. PAGE OPEN / CLOSE
 --------------------------------------------------------------------------- */
+
+
+/** The floating server button only belongs on a project's own pages — not
+    floating over Studio, Social, Notes, etc. where it means nothing. */
+const PROJECT_CONTEXT_PAGES = new Set(['projectDetailPage', 'previewPage', 'linkDeployerPage']);
+function updateServerButtonContext(pageId) {
+  document.body.classList.toggle('on-project-page', PROJECT_CONTEXT_PAGES.has(pageId));
+}
 
 function openKnightPage(pageId, fromRouter = false) {
   if (!requireAuth()) return;
@@ -665,6 +675,7 @@ function openKnightPage(pageId, fromRouter = false) {
   $('dashboard').style.display = 'none';
   page.classList.add('active');
   window.scrollTo(0, 0);
+  updateServerButtonContext(pageId);
 
   if (!fromRouter && PAGE_TO_ROUTE[pageId]) navigate(PAGE_TO_ROUTE[pageId]);
 
@@ -1023,30 +1034,42 @@ function seedNotifications(userId, isNew) {
 
 let notifFilter = 'all';
 
-const NOTIF_ICONS = {
-  friend:  '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>',
-  message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-  project: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
-  change:  '<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>',
-  star:    '<polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6"/>',
-  ping:    '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+/** Every notification belongs to a category: an icon, a colour, and a short
+    tag label shown on the card — not just an icon guessed from the title. */
+const NOTIF_CATEGORIES = {
+  friend:  { label: 'Friend',  color: '#6FA8DC', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>' },
+  message: { label: 'Message', color: '#6FA8B0', icon: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' },
+  project: { label: 'Project', color: '#F3C623', icon: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>' },
+  change:  { label: 'Change',  color: '#B98EE0', icon: '<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>' },
+  review:  { label: 'Review',  color: '#F3C623', icon: '<polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6"/>' },
+  system:  { label: 'System',  color: '#D96C5B', icon: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>' },
 };
 
-/** Pick an icon from what the notification is actually about. */
-function notifIconFor(n) {
+/** Categorise from what the notification is actually about, not a guess-icon. */
+function notifCategory(n) {
   const t = (n.title || '').toLowerCase();
-  if (t.includes('friend'))  return NOTIF_ICONS.friend;
-  if (t.includes('message')) return NOTIF_ICONS.message;
-  if (t.includes('change'))  return NOTIF_ICONS.change;
-  if (t.includes('review') || t.includes('star')) return NOTIF_ICONS.star;
-  if (t.includes('project') || t.includes('joined')) return NOTIF_ICONS.project;
-  return NOTIF_ICONS.ping;
+  if (t.includes('friend') || t.includes('ping')) return 'friend';
+  if (t.includes('message')) return 'message';
+  if (t.includes('change')) return 'change';
+  if (t.includes('review') || t.includes('star')) return 'review';
+  if (t.includes('project') || t.includes('joined') || t.includes('added')) return 'project';
+  return 'system';
 }
 
 function setNotifFilter(f) {
   notifFilter = f;
   $$('.notif-filter').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
   renderNotifications();
+}
+
+/** "Today", "Yesterday", or a short date — groups the list like a real inbox. */
+function notifDayLabel(ts) {
+  const d = new Date(ts), now = new Date();
+  const days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return d.toLocaleDateString(undefined, { weekday: 'long' });
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function renderNotifications() {
@@ -1063,6 +1086,9 @@ function renderNotifications() {
       : "You're all caught up.";
   }
 
+  const unreadTab = $('notifFilterUnreadCount');
+  if (unreadTab) unreadTab.textContent = unreadCount ? String(unreadCount) : '';
+
   const list = notifFilter === 'unread' ? all.filter(n => !n.read) : all;
 
   if (!list.length) {
@@ -1073,12 +1099,23 @@ function renderNotifications() {
     return;
   }
 
-  box.innerHTML = list.map(n => `
-    <div class="notif-card ${n.read ? '' : 'is-unread'}" onclick="openNotification('${n.id}')">
+  // Group into day sections so the list reads like a real inbox, not a flat dump.
+  let lastDay = null;
+  const rows = list.map(n => {
+    const cat = NOTIF_CATEGORIES[notifCategory(n)];
+    const day = notifDayLabel(n.at);
+    const header = day !== lastDay ? `<div class="notif-day-label">${esc(day)}</div>` : '';
+    lastDay = day;
+    return header + `
+    <div class="notif-card ${n.read ? '' : 'is-unread'}" style="--notif-accent:${cat.color};" onclick="openNotification('${n.id}')">
       <div class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${notifIconFor(n)}</svg></div>
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${cat.icon}</svg></div>
       <div class="notif-body">
-        <div class="notif-title">${n.read ? '' : '<span class="notif-dot"></span>'}${esc(n.title)}</div>
+        <div class="notif-title-row">
+          <span class="notif-title">${esc(n.title)}</span>
+          <span class="notif-tag">${esc(cat.label)}</span>
+          ${n.read ? '' : '<span class="notif-dot"></span>'}
+        </div>
         <div class="notif-desc">${esc(n.desc)}</div>
         <div class="notif-time">${timeAgo(n.at)}</div>
       </div>
@@ -1086,7 +1123,10 @@ function renderNotifications() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
-    </div>`).join('');
+    </div>`;
+  });
+
+  box.innerHTML = rows.join('');
 }
 
 function openNotification(id) {
@@ -1250,6 +1290,7 @@ function openProjectDetail(id, fromRouter = false) {
   $('dashboard').style.display = 'none';
   $('projectDetailPage').classList.add('active');
   window.scrollTo(0, 0);
+  updateServerButtonContext('projectDetailPage');
 
   const role = myRoleOn(p) || 'visitor';
   $('projectDetailTitle').textContent = p.name;
@@ -3379,7 +3420,7 @@ Object.assign(window, {
   runCodeUI, startMemoryGame, flipCard,
   addPasskeyUI, removePasskey,
   requestCameraAccessUI, saveCameraSettingsUI, stopCameraPreviewUI, resetLocalPrefsUI,
-  openCommandPalette, dpadPress, edgeScroll, applyDevice,
+  openCommandPalette, dpadPress, edgeScroll, applyDevice, updateServerButtonContext,
   openProjectBuild, submitSecretsPrompt, skipSecretsPrompt, cancelSecretsPrompt,
   purgeOldGuestsUI, wipeAllStorageUI, renderStorageManager,
   openNewProjectModal, removePendingFile, uploadProjectFilesUI,

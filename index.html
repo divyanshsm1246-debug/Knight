@@ -418,7 +418,7 @@
     </div>
     <div class="notif-filters">
       <button class="notif-filter active" data-filter="all" onclick="setNotifFilter('all')">All</button>
-      <button class="notif-filter" data-filter="unread" onclick="setNotifFilter('unread')">Unread</button>
+      <button class="notif-filter" data-filter="unread" onclick="setNotifFilter('unread')">Unread<span id="notifFilterUnreadCount" class="notif-filter-count"></span></button>
       <div class="notif-head-actions">
         <button class="notif-action" onclick="markAllNotificationsRead()">Mark all read</button>
         <button class="notif-action danger" onclick="clearNotifications()">Clear</button>

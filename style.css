@@ -416,85 +416,133 @@ body.reduce-motion, body.reduce-motion *{
 .remember-row:hover .remember-text{ color:var(--text-primary); }
 
 /* ---------------- notifications ---------------- */
-.notif-modal{ max-width:480px; padding-bottom:10px; }
-.notif-head{ margin-bottom:14px; }
-.notif-h2{ font-size:1.3rem; font-weight:600; margin-bottom:2px; }
-.notif-sub{ font-size:.8rem; color:var(--text-tertiary); }
+.notif-modal{ max-width:500px; padding-bottom:12px; }
+
+.notif-head{ margin-bottom:16px; }
+.notif-h2{ font-size:1.32rem; font-weight:700; margin-bottom:3px; letter-spacing:-.01em; }
+.notif-sub{ font-size:.81rem; color:var(--text-tertiary); }
 
 .notif-filters{
-  display:flex; align-items:center; gap:8px; margin-bottom:14px;
-  padding-bottom:12px; border-bottom:1px solid var(--panel-border);
+  display:flex; align-items:center; gap:8px; margin-bottom:16px;
+  padding-bottom:14px; border-bottom:1px solid var(--panel-border);
 }
 .notif-filter{
-  font-family:inherit; font-size:.76rem; cursor:pointer; padding:6px 14px; border-radius:16px;
-  background:transparent; border:1px solid var(--panel-border); color:var(--text-tertiary); transition:all .2s;
+  font-family:inherit; font-size:.78rem; font-weight:500; cursor:pointer;
+  display:inline-flex; align-items:center; gap:6px;
+  padding:7px 15px; border-radius:20px;
+  background:rgba(255,255,255,.03); border:1px solid var(--panel-border);
+  color:var(--text-tertiary); transition:all .18s;
 }
-.notif-filter:hover{ color:var(--text-primary); border-color:var(--panel-border-hover); }
+.notif-filter:hover{ color:var(--text-primary); border-color:var(--panel-border-hover); background:rgba(255,255,255,.06); }
 .notif-filter.active{
-  background:rgba(243,198,35,.12); border-color:rgba(243,198,35,.35); color:var(--accent-gold);
+  background:linear-gradient(135deg, rgba(243,198,35,.18), rgba(243,198,35,.06));
+  border-color:rgba(243,198,35,.45); color:var(--accent-gold);
+  box-shadow:0 2px 10px rgba(243,198,35,.12), inset 0 1px 0 rgba(255,255,255,.06);
 }
-.notif-head-actions{ margin-left:auto; display:flex; gap:6px; }
+.notif-filter-count{
+  font-family:'JetBrains Mono',monospace; font-size:.66rem; font-weight:700;
+  background:var(--accent-gold); color:#1a1608; padding:1px 6px; border-radius:10px;
+  min-width:16px; text-align:center; line-height:1.5;
+}
+.notif-filter:not(.active) .notif-filter-count{
+  background:rgba(255,255,255,.1); color:var(--text-secondary);
+}
+.notif-filter-count:empty{ display:none; }
+.notif-head-actions{ margin-left:auto; display:flex; gap:4px; }
 .notif-action{
-  font-family:inherit; font-size:.72rem; cursor:pointer; background:none; border:none;
-  color:var(--text-tertiary); padding:6px 8px; border-radius:8px; transition:all .2s;
+  font-family:inherit; font-size:.72rem; font-weight:500; cursor:pointer; background:none; border:none;
+  color:var(--text-tertiary); padding:7px 10px; border-radius:8px; transition:all .18s;
 }
-.notif-action:hover{ color:var(--text-primary); background:rgba(255,255,255,.05); }
-.notif-action.danger:hover{ color:var(--accent-coral); }
+.notif-action:hover{ color:var(--text-primary); background:rgba(255,255,255,.06); }
+.notif-action.danger:hover{ color:var(--accent-coral); background:rgba(217,108,91,.1); }
 
 .notif-list{
-  display:flex; flex-direction:column; gap:6px;
-  max-height:min(52vh,420px); overflow-y:auto; overscroll-behavior:contain;
-  margin:0 -6px; padding:0 6px 6px;
+  display:flex; flex-direction:column; gap:3px;
+  max-height:min(56vh,460px); overflow-y:auto; overscroll-behavior:contain;
+  margin:0 -8px; padding:0 8px 8px;
 }
 .notif-list::-webkit-scrollbar{ width:6px; }
-.notif-list::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.12); border-radius:3px; }
+.notif-list::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.14); border-radius:3px; }
+
+.notif-day-label{
+  font-family:'JetBrains Mono',monospace; font-size:.65rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:.12em; color:var(--text-tertiary);
+  padding:14px 10px 7px; }
+.notif-day-label:first-child{ padding-top:4px; }
 
 .notif-card{
-  position:relative; display:flex; gap:12px; align-items:flex-start;
-  padding:13px 14px 13px 16px; border-radius:12px; cursor:pointer;
-  background:rgba(255,255,255,.02); border:1px solid var(--panel-border);
-  transition:background .18s, border-color .18s, transform .18s;
+  --notif-accent:#F3C623;
+  position:relative; display:flex; gap:13px; align-items:flex-start;
+  padding:13px 14px 13px 17px; border-radius:14px; cursor:pointer;
+  background:linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,.012));
+  border:1px solid var(--panel-border);
+  box-shadow:0 1px 0 rgba(255,255,255,.02) inset;
+  transition:background .18s, border-color .18s, transform .16s, box-shadow .18s;
 }
-.notif-card:hover{ background:rgba(255,255,255,.055); border-color:var(--panel-border-hover); transform:translateX(2px); }
-.notif-card.is-unread{ background:rgba(243,198,35,.055); border-color:rgba(243,198,35,.2); }
+.notif-card:hover{
+  background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.025));
+  border-color:var(--panel-border-hover); transform:translateX(3px);
+  box-shadow:0 6px 18px rgba(0,0,0,.22);
+}
+.notif-card.is-unread{
+  background:linear-gradient(180deg, color-mix(in srgb, var(--notif-accent) 9%, transparent), color-mix(in srgb, var(--notif-accent) 3%, transparent));
+  border-color:color-mix(in srgb, var(--notif-accent) 30%, var(--panel-border));
+}
 .notif-card.is-unread::before{
-  content:''; position:absolute; left:0; top:12px; bottom:12px; width:2.5px;
-  border-radius:0 3px 3px 0; background:var(--accent-gold);
+  content:''; position:absolute; left:0; top:10px; bottom:10px; width:3px;
+  border-radius:0 3px 3px 0; background:var(--notif-accent);
+  box-shadow:0 0 8px color-mix(in srgb, var(--notif-accent) 60%, transparent);
 }
 .notif-icon{
-  width:30px; height:30px; flex-shrink:0; border-radius:9px;
+  width:34px; height:34px; flex-shrink:0; border-radius:10px; margin-top:1px;
   display:flex; align-items:center; justify-content:center;
-  background:rgba(255,255,255,.05); border:1px solid var(--panel-border); color:var(--text-secondary);
+  background:color-mix(in srgb, var(--notif-accent) 14%, transparent);
+  border:1px solid color-mix(in srgb, var(--notif-accent) 32%, transparent);
+  color:var(--notif-accent);
 }
-.notif-card.is-unread .notif-icon{
-  background:rgba(243,198,35,.12); border-color:rgba(243,198,35,.28); color:var(--accent-gold);
-}
-.notif-icon svg{ width:15px; height:15px; }
+.notif-icon svg{ width:16px; height:16px; }
 .notif-body{ flex:1; min-width:0; }
-.notif-card .notif-title{
-  font-size:.86rem; font-weight:600; color:var(--text-primary); margin-bottom:2px;
-  display:flex; align-items:center; gap:7px;
+.notif-title-row{ display:flex; align-items:center; gap:7px; margin-bottom:3px; flex-wrap:wrap; }
+.notif-card .notif-title{ font-size:.87rem; font-weight:600; color:var(--text-primary); line-height:1.3; }
+.notif-tag{
+  font-family:'JetBrains Mono',monospace; font-size:.6rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:.06em;
+  padding:2px 7px; border-radius:6px; flex-shrink:0;
+  color:var(--notif-accent);
+  background:color-mix(in srgb, var(--notif-accent) 16%, transparent);
+  border:1px solid color-mix(in srgb, var(--notif-accent) 30%, transparent);
 }
-.notif-dot{ width:6px; height:6px; border-radius:50%; background:var(--accent-gold); flex-shrink:0; }
+.notif-dot{
+  width:6px; height:6px; border-radius:50%; background:var(--notif-accent); flex-shrink:0; margin-left:auto;
+  box-shadow:0 0 6px color-mix(in srgb, var(--notif-accent) 70%, transparent);
+}
 .notif-card .notif-desc{
-  font-size:.79rem; color:var(--text-secondary); line-height:1.45;
-  overflow-wrap:anywhere; margin-bottom:4px;
+  font-size:.79rem; color:var(--text-secondary); line-height:1.5;
+  overflow-wrap:anywhere; margin-bottom:5px;
 }
-.notif-card .notif-time{ font-size:.68rem; color:var(--text-tertiary); font-family:'JetBrains Mono',monospace; }
+.notif-card .notif-time{ font-size:.67rem; color:var(--text-tertiary); font-family:'JetBrains Mono',monospace; }
 .notif-x{
-  opacity:0; flex-shrink:0; background:none; border:none; cursor:pointer; padding:3px;
-  color:var(--text-tertiary); border-radius:6px; transition:all .18s; line-height:0;
+  opacity:0; flex-shrink:0; background:none; border:none; cursor:pointer; padding:4px;
+  color:var(--text-tertiary); border-radius:7px; transition:all .18s; line-height:0; margin-top:2px;
 }
 .notif-card:hover .notif-x{ opacity:1; }
-.notif-x:hover{ color:var(--accent-coral); background:rgba(217,108,91,.12); }
+.notif-x:hover{ color:var(--accent-coral); background:rgba(217,108,91,.14); }
 .notif-x svg{ width:13px; height:13px; }
 
 .notif-empty{
-  display:flex; flex-direction:column; align-items:center; gap:10px;
-  padding:38px 20px; text-align:center; color:var(--text-tertiary);
+  display:flex; flex-direction:column; align-items:center; gap:12px;
+  padding:44px 20px; text-align:center; color:var(--text-tertiary);
 }
-.notif-empty svg{ width:32px; height:32px; opacity:.32; }
-.notif-empty p{ font-size:.84rem; }
+.notif-empty svg{ width:34px; height:34px; opacity:.28; }
+.notif-empty p{ font-size:.85rem; }
+
+/* Fallback for browsers without color-mix support: keep the gold theme instead of breaking. */
+@supports not (background: color-mix(in srgb, red 10%, transparent)){
+  .notif-icon{ background:rgba(243,198,35,.12); border-color:rgba(243,198,35,.28); color:var(--accent-gold); }
+  .notif-tag{ background:rgba(243,198,35,.12); border-color:rgba(243,198,35,.3); color:var(--accent-gold); }
+  .notif-dot{ background:var(--accent-gold); }
+  .notif-card.is-unread{ background:rgba(243,198,35,.06); border-color:rgba(243,198,35,.22); }
+}
 
 /* ---------------- avatar emblems ---------------- */
 .avatar-item{
@@ -596,7 +644,9 @@ select{ font-family:inherit; }
   backdrop-filter:blur(10px); box-shadow:0 8px 26px rgba(0,0,0,.45);
   transition:all .22s;
 }
-body.is-authed .server-toggle{ display:flex; }
+/* Only float the server button where it's actually relevant: a project's own
+   pages, not the whole site. Toggling body classes per page in JS controls this. */
+body.on-project-page .server-toggle{ display:flex; }
 .server-toggle:hover{ border-color:var(--panel-border-hover); transform:translateY(-2px); }
 .server-dot{
   width:8px; height:8px; border-radius:50%; flex-shrink:0;
