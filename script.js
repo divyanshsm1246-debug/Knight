@@ -185,12 +185,21 @@ function getSession() {
   return s;
 }
 
-function setSession(userId) {
+function setSession(userId, remember = true) {
+  // "Remember me" ticked  -> the session survives closing the browser for a year.
+  // Unticked              -> it lasts 12 hours, so a shared computer forgets you.
+  const days = remember ? SESSION_DAYS : 0.5;
   writeJSON(LS.session, {
     userId,
     token: uid('tok'),
-    expires: Date.now() + SESSION_DAYS * 86400000,
+    remember: !!remember,
+    expires: Date.now() + days * 86400000,
   });
+}
+
+function rememberChecked() {
+  const box = $('rememberMe');
+  return box ? !!box.checked : true;
 }
 
 function clearSession() { localStorage.removeItem(LS.session); CURRENT = null; }
@@ -293,7 +302,11 @@ async function doSignIn(email, password) {
   const key = email.toLowerCase();
   const user = users[key];
 
-  if (!user) throw new Error('No account found for that email. Switch to Sign Up to create one.');
+  if (!user) {
+    const err = new Error('No account found for that email on this device.');
+    err.offerSignup = true;
+    throw err;
+  }
   const hash = await sha256(password + key);
   if (user.passHash !== hash) throw new Error('Incorrect passphrase. Try again.');
   return user;
@@ -316,11 +329,23 @@ async function handleAuthSubmit(e) {
       ? await doSignUp(email, password)
       : await doSignIn(email, password);
 
-    setSession(user.id);
+    setSession(user.id, rememberChecked());
     enterApp(user, { fresh: true });
     toast(authMode === 'signup' ? 'Account created. Welcome to Knight.' : 'Welcome back, ' + user.username + '.');
   } catch (err) {
     authError(err.message || 'Something went wrong. Please try again.');
+    // Signing in with an email that has no account is the single most common
+    // failure, so offer the fix instead of leaving a dead end.
+    if (err.offerSignup) {
+      const el = $('authError');
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'nav-cta';
+      link.style.cssText = 'margin-top:10px;font-size:.75rem;padding:6px 14px;display:block;';
+      link.textContent = 'Create an account with this email instead';
+      link.onclick = () => { setAuthMode('signup'); $('email').value = email; };
+      el.appendChild(link);
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = authMode === 'signup' ? 'Create Account' : 'Authenticate';
@@ -339,13 +364,15 @@ function signInAsGuest() {
   });
   users[user.email] = user;
   DB.saveUsers(users);
-  setSession(user.id);
+  setSession(user.id, false);   // guests are never remembered
   seedNotifications(user.id, true);
   enterApp(user, { fresh: true });
   toast('Guest session started — create an account any time to keep your work.');
 }
 
 function signOutUI() {
+  stopPreview();
+  document.body.classList.remove('is-authed');
   clearSession();
   location.hash = '';
   $('dashboard').style.display = 'none';
@@ -435,7 +462,7 @@ async function signInWithPasskey() {
     const usedId = b64(assertion.rawId);
     const user = withKeys.find(u => u.passkeys.some(k => k.id === usedId));
     if (!user) throw new Error('That passkey is not linked to an account here.');
-    setSession(user.id);
+    setSession(user.id, rememberChecked());
     enterApp(user, { fresh: true });
     toast('Signed in with passkey.');
   } catch (e) {
@@ -476,22 +503,54 @@ function removePasskey(id) {
    6. AVATARS
 --------------------------------------------------------------------------- */
 
-const AVATAR_EMBLEMS = ['⚔️', '🛡️', '👑', '🐉', '🦅', '🔥', '⚡', '🌑', '💎', '🎯', '🧿', '🪐'];
+/* Twelve geometric emblems, drawn as SVG so they stay crisp at any size and
+   pick up the current theme colour instead of looking like pasted emoji. */
+const AVATAR_SVGS = [
+  // 1 cube
+  '<path d="M24 5 L41 14.5 L41 33.5 L24 43 L7 33.5 L7 14.5 Z"/><path d="M7 14.5 L24 24 L41 14.5"/><path d="M24 24 L24 43"/>',
+  // 2 nested triangles
+  '<path d="M24 7 L42 39 L6 39 Z"/><path d="M24 19 L33 34 L15 34 Z"/>',
+  // 3 orbit
+  '<circle cx="24" cy="24" r="8"/><ellipse cx="24" cy="24" rx="18" ry="7.5" transform="rotate(-28 24 24)"/>',
+  // 4 stacked diamonds
+  '<path d="M24 5 L36 17 L24 29 L12 17 Z"/><path d="M24 25 L36 37 L24 43"/><path d="M24 25 L12 37 L24 43"/>',
+  // 5 hex core
+  '<path d="M24 5 L40 14.5 L40 33.5 L24 43 L8 33.5 L8 14.5 Z"/><circle cx="24" cy="24" r="5"/>',
+  // 6 chevrons
+  '<path d="M9 18 L24 8 L39 18"/><path d="M9 28 L24 18 L39 28"/><path d="M9 38 L24 28 L39 38"/>',
+  // 7 rotated squares
+  '<rect x="12" y="12" width="24" height="24" rx="2"/><rect x="12" y="12" width="24" height="24" rx="2" transform="rotate(45 24 24)"/>',
+  // 8 signal arcs
+  '<circle cx="24" cy="34" r="3.5"/><path d="M15 27a12 12 0 0 1 18 0"/><path d="M9 20a20 20 0 0 1 30 0"/>',
+  // 9 quad grid
+  '<rect x="8" y="8" width="14" height="14" rx="2"/><rect x="26" y="8" width="14" height="14" rx="2"/><rect x="8" y="26" width="14" height="14" rx="2"/><rect x="26" y="26" width="14" height="14" rx="2"/>',
+  // 10 asterisk burst
+  '<line x1="24" y1="6" x2="24" y2="42"/><line x1="8" y1="15" x2="40" y2="33"/><line x1="8" y1="33" x2="40" y2="15"/><circle cx="24" cy="24" r="4.5"/>',
+  // 11 shield
+  '<path d="M24 5 L40 11 V25 C40 34 33 40 24 43 C15 40 8 34 8 25 V11 Z"/><path d="M17 24 L22 29 L32 19"/>',
+  // 12 waves
+  '<path d="M7 18c5-6 10-6 15 0s10 6 15 0"/><path d="M7 27c5-6 10-6 15 0s10 6 15 0"/><path d="M7 36c5-6 10-6 15 0s10 6 15 0"/>',
+];
+
+function emblemSvg(i) {
+  return `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4"
+    stroke-linecap="round" stroke-linejoin="round">${AVATAR_SVGS[i % AVATAR_SVGS.length]}</svg>`;
+}
 
 function avatarMarkup(user, size = 40) {
   if (!user) return '';
   if (user.avatar) {
     return `<img src="${esc(user.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover;">`;
   }
-  const emblem = AVATAR_EMBLEMS[(user.avatarIndex || 0) % AVATAR_EMBLEMS.length];
-  return `<span style="font-size:${Math.round(size * 0.5)}px; line-height:1;">${emblem}</span>`;
+  return `<span style="width:${Math.round(size * 0.58)}px;height:${Math.round(size * 0.58)}px;
+    display:flex;color:var(--accent-gold);">${emblemSvg(user.avatarIndex || 0)}</span>`;
 }
 
 function buildAvatarGrid(gridId, onPick, selected = 0) {
   const grid = $(gridId);
   if (!grid) return;
-  grid.innerHTML = AVATAR_EMBLEMS.map((e, i) =>
-    `<div class="avatar-item ${i === selected ? 'selected' : ''}" data-index="${i}">${e}</div>`
+  grid.innerHTML = AVATAR_SVGS.map((_, i) =>
+    `<div class="avatar-item ${i === selected ? 'selected' : ''}" data-index="${i}">${emblemSvg(i)}</div>`
   ).join('');
   $$('.avatar-item', grid).forEach(item => {
     item.onclick = () => {
@@ -649,6 +708,7 @@ function closeModal(id) { const m = $(id); if (m) m.classList.remove('active'); 
 
 function enterApp(user, { fresh = false } = {}) {
   CURRENT = user;
+  document.body.classList.add('is-authed');
 
   // Touch lastSeen
   const users = DB.users();
@@ -961,15 +1021,72 @@ function seedNotifications(userId, isNew) {
   pushNotification(userId, 'Welcome to Knight', 'Your account is saved on this device — you will stay signed in.', '#/home');
 }
 
+let notifFilter = 'all';
+
+const NOTIF_ICONS = {
+  friend:  '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>',
+  message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  project: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  change:  '<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>',
+  star:    '<polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6"/>',
+  ping:    '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+};
+
+/** Pick an icon from what the notification is actually about. */
+function notifIconFor(n) {
+  const t = (n.title || '').toLowerCase();
+  if (t.includes('friend'))  return NOTIF_ICONS.friend;
+  if (t.includes('message')) return NOTIF_ICONS.message;
+  if (t.includes('change'))  return NOTIF_ICONS.change;
+  if (t.includes('review') || t.includes('star')) return NOTIF_ICONS.star;
+  if (t.includes('project') || t.includes('joined')) return NOTIF_ICONS.project;
+  return NOTIF_ICONS.ping;
+}
+
+function setNotifFilter(f) {
+  notifFilter = f;
+  $$('.notif-filter').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
+  renderNotifications();
+}
+
 function renderNotifications() {
   const box = $('notificationsContainer');
-  const list = (DB.data().notifications[myId()] || []);
-  box.innerHTML = list.length
-    ? list.map(n => `<div class="notif-item ${n.read ? '' : 'unread'}" onclick="openNotification('${n.id}')">
-        <div class="notif-title">${esc(n.title)}</div>
+  if (!box) return;
+
+  const all = DB.data().notifications[myId()] || [];
+  const unreadCount = all.filter(n => !n.read).length;
+
+  const sub = $('notifSubtitle');
+  if (sub) {
+    sub.textContent = !all.length ? "Nothing here yet."
+      : unreadCount ? unreadCount + (unreadCount === 1 ? ' unread alert' : ' unread alerts')
+      : "You're all caught up.";
+  }
+
+  const list = notifFilter === 'unread' ? all.filter(n => !n.read) : all;
+
+  if (!list.length) {
+    box.innerHTML = `<div class="notif-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      <p>${notifFilter === 'unread' ? 'No unread alerts.' : 'No alerts yet.'}</p></div>`;
+    return;
+  }
+
+  box.innerHTML = list.map(n => `
+    <div class="notif-card ${n.read ? '' : 'is-unread'}" onclick="openNotification('${n.id}')">
+      <div class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${notifIconFor(n)}</svg></div>
+      <div class="notif-body">
+        <div class="notif-title">${n.read ? '' : '<span class="notif-dot"></span>'}${esc(n.title)}</div>
         <div class="notif-desc">${esc(n.desc)}</div>
-        <div class="notif-time">${timeAgo(n.at)}</div></div>`).join('')
-    : `<p style="font-size:.85rem;color:var(--text-tertiary);">Nothing here yet.</p>`;
+        <div class="notif-time">${timeAgo(n.at)}</div>
+      </div>
+      <button class="notif-x" title="Dismiss" onclick="event.stopPropagation(); deleteNotification('${n.id}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>`).join('');
 }
 
 function openNotification(id) {
@@ -977,17 +1094,43 @@ function openNotification(id) {
   const list = d.notifications[myId()] || [];
   const n = list.find(x => x.id === id);
   if (!n) return;
+
   n.read = true;
   DB.saveData(d);
-  renderNotifications(); renderNotifBadge();
-  if (n.route) { closeModal('notificationsModal'); location.hash = n.route; }
+  renderNotifications();
+  renderNotifBadge();
+
+  // Only navigate if the route actually goes somewhere.
+  if (n.route && n.route !== location.hash) {
+    closeModal('notificationsModal');
+    location.hash = n.route;
+  }
+}
+
+function deleteNotification(id) {
+  const d = DB.data();
+  d.notifications[myId()] = (d.notifications[myId()] || []).filter(n => n.id !== id);
+  DB.saveData(d);
+  renderNotifications();
+  renderNotifBadge();
+}
+
+function markAllNotificationsRead() {
+  const d = DB.data();
+  (d.notifications[myId()] || []).forEach(n => { n.read = true; });
+  DB.saveData(d);
+  renderNotifications();
+  renderNotifBadge();
+  toast('All alerts marked as read.');
 }
 
 function clearNotifications() {
   const d = DB.data();
+  if (!(d.notifications[myId()] || []).length) return;
   d.notifications[myId()] = [];
   DB.saveData(d);
-  renderNotifications(); renderNotifBadge();
+  renderNotifications();
+  renderNotifBadge();
   toast('Alerts cleared.');
 }
 
@@ -995,7 +1138,7 @@ function renderNotifBadge() {
   const unread = (DB.data().notifications[myId()] || []).filter(n => !n.read).length;
   const b = $('notifBadge');
   if (!b) return;
-  b.textContent = unread;
+  b.textContent = unread > 9 ? '9+' : unread;
   b.classList.toggle('hidden', unread === 0);
 }
 
@@ -1040,7 +1183,7 @@ function createProjectUI() {
     visibleTo: $('newProjVisibleTo').value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
     location: pendingLocation,
     locationLabel: $('newProjLocationLabel').value.trim(),
-    files: {},
+    files: Object.assign({}, pendingProjectFiles),
     versions: [{ id: uid('ver'), label: 'Version 1', note: 'Initial version', at: Date.now(), snapshot: {} }],
     members: [],
     changeRequests: [],
@@ -1055,6 +1198,8 @@ function createProjectUI() {
   DB.saveData(d);
 
   pendingLocation = null;
+  pendingProjectFiles = {};
+  renderPendingFiles();
   ['newProjName','newProjDesc','newProjTags','newProjVisibleTo','newProjLocationLabel'].forEach(i => $(i).value = '');
   $('newProjLocationStatus').textContent = '';
 
@@ -1130,6 +1275,12 @@ function openProjectDetail(id, fromRouter = false) {
   }
   $('deployedUrlInput').value = p.deployedUrl || '';
 
+  const hasHtml = Object.keys(p.files || {}).some(n => ['html','htm'].includes(extOf(n)));
+  const hint = $('projectRunHint');
+  if (hint) hint.textContent = hasHtml
+    ? 'Detected a website — Run Website starts the local server.'
+    : 'No .html yet. Upload one, or send a code file to the Terminal.';
+
   renderProjectFiles(p, role);
   renderVersions(p, isOwner);
   renderMembers(p, isOwner);
@@ -1199,6 +1350,7 @@ function saveFileEditorUI() {
     p.updatedAt = Date.now();
     DB.saveData(d);
     toast('File saved.');
+    if (server.on && server.projectId === p.id && $('previewAutoReload')?.checked) runPreview();
   } else if (role === 'contributor') {
     p.changeRequests.push({
       id: uid('cr'), by: myId(), file: currentFileName,
@@ -1233,12 +1385,38 @@ function deleteFileEditorUI() {
 /* ----- Versions ----------------------------------------------------------- */
 
 function renderVersions(p, canManage) {
-  $('versionsList').innerHTML = (p.versions || []).slice().reverse().map(v => `
-    <div class="friend-row">
-      <div><b>${esc(v.label)}</b>
-      <div style="font-size:.74rem;color:var(--text-tertiary);">${esc(v.note || '')} · ${timeAgo(v.at)} · ${Object.keys(v.snapshot || {}).length} files</div></div>
-      ${canManage ? `<button class="nav-cta" onclick="restoreVersion('${v.id}')">Restore</button>` : ''}
-    </div>`).join('');
+  const list = (p.versions || []);
+  $('versionsList').innerHTML = list.slice().reverse().map((v, i) => {
+    const prev = list[list.length - 2 - i];
+    const changed = prev ? diffFileNames(prev.snapshot || {}, v.snapshot || {}) : [];
+    return `<div class="version-card">
+      <div class="version-head">
+        <div>
+          <b>${esc(v.label)}</b>
+          ${i === 0 ? '<span class="version-current">current</span>' : ''}
+          <div class="version-meta">${timeAgo(v.at)} · ${Object.keys(v.snapshot || {}).length} files</div>
+        </div>
+        ${canManage && i !== 0 ? `<button class="nav-cta" onclick="restoreVersion('${v.id}')">Restore</button>` : ''}
+      </div>
+      <p class="version-note">${esc(v.note || 'No description given.')}</p>
+      ${changed.length ? `<div class="version-changed">${changed.slice(0, 6).map(c =>
+        `<span class="chg chg-${c.kind}">${c.kind === 'added' ? '+' : c.kind === 'removed' ? '−' : '~'} ${esc(c.name)}</span>`
+      ).join('')}${changed.length > 6 ? `<span class="chg">+${changed.length - 6} more</span>` : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/** Compare two snapshots so each version can show what actually changed. */
+function diffFileNames(before, after) {
+  const out = [];
+  Object.keys(after).forEach(n => {
+    if (before[n] === undefined) out.push({ name: n, kind: 'added' });
+    else if (before[n] !== after[n]) out.push({ name: n, kind: 'edited' });
+  });
+  Object.keys(before).forEach(n => {
+    if (after[n] === undefined) out.push({ name: n, kind: 'removed' });
+  });
+  return out;
 }
 
 function cutVersionUI() {
@@ -1842,14 +2020,49 @@ function measureFPS() {
 function renderLinkDeployer() {
   const projects = Object.values(DB.data().projects).filter(p => p.ownerId === myId());
   $('linkDeployerList').innerHTML = projects.length
-    ? projects.map(p => `<div class="friend-row">
-        <div><b>${esc(p.name)}</b>
-        <div style="font-size:.74rem;color:var(--text-tertiary);">${p.deployedUrl ? esc(p.deployedUrl) : 'No link saved yet'}</div></div>
-        <div style="display:flex;gap:8px;">
-          ${p.deployedUrl ? `<a class="nav-cta" href="${esc(p.deployedUrl)}" target="_blank" rel="noopener">Visit</a>` : ''}
-          <button class="nav-cta" onclick="openProjectDetail('${p.id}')">Edit</button>
-        </div></div>`).join('')
+    ? projects.map(p => {
+        const web = Object.keys(p.files || {}).some(n => ['html', 'htm'].includes(extOf(n)));
+        return `<div class="deploy-card">
+          <div class="deploy-card-head">
+            <div>
+              <b>${esc(p.name)}</b>
+              <div class="deploy-url">${p.deployedUrl
+                ? `<a href="${esc(p.deployedUrl)}" target="_blank" rel="noopener">${esc(p.deployedUrl)}</a>`
+                : 'Not deployed yet'}</div>
+            </div>
+            <span class="deploy-status ${p.deployedUrl ? 'is-live' : ''}">${p.deployedUrl ? 'live' : 'draft'}</span>
+          </div>
+          <div class="deploy-actions">
+            ${web ? `<button class="nav-cta btn-golden" onclick="openPreviewFor('${p.id}')">▶ Preview</button>
+                     <button class="nav-cta" onclick="exportProjectUI('${p.id}')">Build .html</button>` : ''}
+            <button class="nav-cta" onclick="openProjectDetail('${p.id}')">Open project</button>
+          </div>
+          <div class="friend-add-row">
+            <input type="url" id="deployUrl-${p.id}" value="${esc(p.deployedUrl || '')}"
+              placeholder="https://your-site.netlify.app">
+            <button class="nav-cta" onclick="saveDeployUrlFor('${p.id}')">Save link</button>
+          </div>
+        </div>`;
+      }).join('')
     : `<p style="font-size:.85rem;color:var(--text-tertiary);">No projects yet.</p>`;
+}
+
+function openPreviewFor(pid) {
+  server.on = true;
+  server.projectId = pid;
+  currentProjectId = pid;
+  paintServerButton();
+  openPreview(pid);
+}
+
+function saveDeployUrlFor(pid) {
+  const d = DB.data();
+  const p = d.projects[pid];
+  if (!p) return;
+  p.deployedUrl = ($('deployUrl-' + pid).value || '').trim();
+  DB.saveData(d);
+  renderLinkDeployer();
+  toast(p.deployedUrl ? 'Deployment link saved.' : 'Link cleared.');
 }
 
 /* ---------------------------------------------------------------------------
@@ -1889,26 +2102,102 @@ function renderShortcuts() {
   ).join('');
 }
 
+const DEVICES = ['Laptop', 'Desktop', 'Smartphone', 'Tablet', 'Console', 'Handheld'];
+
 function detectDevice() {
   const ua = navigator.userAgent;
-  if (/iPad|Tablet/i.test(ua)) return 'Tablet';
+  const touch = (navigator.maxTouchPoints || 0) > 1;
+  if (/iPad/i.test(ua) || (touch && Math.min(screen.width, screen.height) >= 700)) return 'Tablet';
   if (/Mobi|Android|iPhone/i.test(ua)) return 'Smartphone';
-  if (/Mac/i.test(ua)) return 'MacBook';
-  return 'Windows';
+  // Laptops and desktops look identical to a browser, so fall back on screen size.
+  return screen.width >= 1600 ? 'Desktop' : 'Laptop';
+}
+
+/** Mac uses Cmd, everything else uses Alt — this is the OS, not the device. */
+function isMacPlatform() {
+  return /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent);
 }
 
 function applyDevice(device) {
+  if (!DEVICES.includes(device)) device = detectDevice();
+
   const p = DB.prefs(); p.device = device; DB.savePrefs(p);
+
   const el = $('headerDeviceName');
   if (el) el.textContent = device;
 
-  // The stylesheet drives the on-screen controls from body classes.
-  ['windows','macbook','smartphone','tablet','console','handheld','headphones']
-    .forEach(d => document.body.classList.remove('device-' + d));
+  DEVICES.forEach(d => document.body.classList.remove('device-' + d.toLowerCase()));
   document.body.classList.add('device-' + device.toLowerCase());
-  shortcutOS = device === 'MacBook' ? 'macos' : 'windows';
+
+  // Floating on-screen controls, shown only where they make sense.
+  toggleControls('tabletEdgeControls', device === 'Tablet');
+  toggleControls('handheldControls',  device === 'Handheld');
+  toggleControls('consoleDpad',       device === 'Console');
+
+  // Arrow-key / D-pad focus navigation is only live on Console and Handheld.
+  dpad.enabled = (device === 'Console' || device === 'Handheld');
+  if (!dpad.enabled) dpad.clear();
+
+  shortcutOS = isMacPlatform() ? 'macos' : 'windows';
   $$('.os-tab').forEach(t => t.classList.toggle('active', t.dataset.os === shortcutOS));
   $$('.device-card').forEach(c => c.classList.toggle('selected', c.dataset.device === device));
+
+  if ($('shortcutPage') && $('shortcutPage').classList.contains('active')) renderShortcuts();
+}
+
+function toggleControls(id, on) {
+  const node = $(id);
+  if (!node) return;
+  node.style.display = on ? '' : 'none';
+}
+
+/* ----- D-pad / arrow-key navigation (Console + Handheld) ----------------- */
+
+const dpad = {
+  enabled: false,
+  index: -1,
+
+  targets() {
+    const page = $$('.knight-page.active')[0];
+    const root = page || $('dashboard');
+    if (!root) return [];
+    return $$('.dash-card, .nav-cta, .submit-btn, .friend-row button, .studio-tab', root)
+      .filter(el => el.offsetParent !== null);
+  },
+
+  clear() {
+    $$('.dpad-focus').forEach(el => el.classList.remove('dpad-focus'));
+    this.index = -1;
+  },
+
+  move(step) {
+    const list = this.targets();
+    if (!list.length) return;
+    this.clear();
+    this.index = (this.index + step + list.length) % list.length;
+    const el = list[this.index];
+    el.classList.add('dpad-focus');
+    el.focus({ preventScroll: true });
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  },
+
+  activate() {
+    const el = this.targets()[this.index];
+    if (el) el.click();
+  },
+};
+
+function dpadPress(dir) {
+  if (!dpad.enabled) return;
+  if (dir === 'up' || dir === 'left') dpad.move(-1);
+  else if (dir === 'down' || dir === 'right') dpad.move(1);
+  else if (dir === 'a' || dir === 'center') dpad.activate();
+  else if (dir === 'b') { dpad.clear(); goHome(); }
+}
+
+/** Tablet edge buttons scroll the page without a mouse wheel. */
+function edgeScroll(dir) {
+  window.scrollBy({ top: dir * Math.round(window.innerHeight * 0.7), behavior: 'smooth' });
 }
 
 function openDeviceSetup() { closeModal('profileModal'); openModalRaw('deviceModal'); }
@@ -2100,6 +2389,14 @@ function setupKeyboard() {
 
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
 
+    // Console / Handheld: real arrow-key navigation between cards.
+    if (dpad.enabled && me() && !typing && !openModalEl) {
+      const dirs = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+      if (dirs[e.key]) { e.preventDefault(); dpadPress(dirs[e.key]); return; }
+      if (e.key === 'Enter' && dpad.index >= 0) { e.preventDefault(); dpadPress('a'); return; }
+      if (e.key === 'Backspace') { e.preventDefault(); dpadPress('b'); return; }
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       if (me()) openCommandPalette();
@@ -2128,6 +2425,369 @@ function setupKeyboard() {
     const fn = map[e.key.toLowerCase()];
     if (fn) { e.preventDefault(); fn(); }
   });
+}
+
+
+/* ===========================================================================
+   26. FILES FROM YOUR COMPUTER + THE LOCAL PREVIEW SERVER
+
+   "Turn the server on" means: Knight assembles the project's files into a
+   single runnable document and serves it to a sandboxed iframe from a blob
+   URL. That is a real, working preview of your site — links, CSS, scripts,
+   images and fetch-free JS all run. It is local to this browser: nobody else
+   on the internet can reach it, which is what deploying to a host is for.
+=========================================================================== */
+
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+const TEXT_EXT = ['html','htm','css','js','mjs','jsx','ts','tsx','json','md','txt','csv',
+                  'py','java','c','cpp','h','go','rs','rb','php','sh','yml','yaml','xml','svg'];
+const IMAGE_EXT = ['png','jpg','jpeg','gif','webp','ico','bmp','avif'];
+
+const extOf = (name) => (name.split('.').pop() || '').toLowerCase();
+const isText = (name) => TEXT_EXT.includes(extOf(name));
+const isImage = (name) => IMAGE_EXT.includes(extOf(name));
+
+/** Read one File into either text or a data: URL, depending on its type. */
+function readProjectFile(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > MAX_FILE_BYTES) {
+      reject(new Error(file.name + ' is larger than 2 MB.'));
+      return;
+    }
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('Could not read ' + file.name));
+    r.onload = () => resolve({ name: file.name, content: r.result });
+    if (isText(file.name)) r.readAsText(file);
+    else if (isImage(file.name)) r.readAsDataURL(file);
+    else r.readAsText(file);      // unknown types are treated as text
+  });
+}
+
+async function readFileList(fileList) {
+  const out = [];
+  for (const f of Array.from(fileList || [])) {
+    try { out.push(await readProjectFile(f)); }
+    catch (e) { toast(e.message, true); }
+  }
+  return out;
+}
+
+/* ----- upload into the New Project modal ----- */
+
+let pendingProjectFiles = {};
+
+function renderPendingFiles() {
+  const box = $('newProjFileList');
+  if (!box) return;
+  const names = Object.keys(pendingProjectFiles);
+  box.innerHTML = names.length
+    ? names.map(n => `<div class="upload-chip"><span>${esc(n)}</span>
+        <button onclick="removePendingFile('${esc(n)}')" title="Remove">&times;</button></div>`).join('')
+    : '';
+}
+
+function removePendingFile(name) {
+  delete pendingProjectFiles[name];
+  renderPendingFiles();
+}
+
+async function handleNewProjectFiles(fileList) {
+  const files = await readFileList(fileList);
+  files.forEach(f => { pendingProjectFiles[f.name] = f.content; });
+  renderPendingFiles();
+  if (files.length) toast(files.length + ' file' + (files.length === 1 ? '' : 's') + ' ready.');
+}
+
+function openNewProjectModal() {
+  if (!requireAuth()) return;
+  pendingProjectFiles = {};
+  renderPendingFiles();
+  openModalRaw('newProjectModal');
+}
+
+/* ----- upload into an existing project ----- */
+
+async function uploadProjectFilesUI(input) {
+  const d = DB.data();
+  const p = d.projects[currentProjectId];
+  const role = myRoleOn(p);
+  if (!['owner', 'editor', 'contributor'].includes(role)) {
+    toast('You cannot add files to this project.', true);
+    return;
+  }
+
+  const files = await readFileList(input.files);
+  input.value = '';
+  if (!files.length) return;
+
+  if (role === 'contributor') {
+    // Contributors propose new files the same way they propose edits.
+    files.forEach(f => {
+      p.changeRequests.push({
+        id: uid('cr'), by: myId(), file: f.name,
+        before: p.files[f.name] ?? '', after: f.content,
+        status: 'pending', at: Date.now(),
+      });
+    });
+    DB.saveData(d);
+    pushNotification(p.ownerId, 'New Change Request',
+      me().username + ' proposed ' + files.length + ' file(s) for ' + p.name + '.', '#/project/' + p.id);
+    toast('Uploaded as change requests for review.');
+  } else {
+    files.forEach(f => { p.files[f.name] = f.content; });
+    p.updatedAt = Date.now();
+    DB.saveData(d);
+    toast(files.length + ' file' + (files.length === 1 ? '' : 's') + ' added.');
+    if (server.on && server.projectId === p.id) runPreview();
+  }
+  openProjectDetail(currentProjectId, true);
+}
+
+/* ----- the preview server ----- */
+
+const server = {
+  on: false,
+  projectId: null,
+  blobUrl: null,
+};
+
+function toggleServer() {
+  if (!requireAuth()) return;
+  server.on = !server.on;
+  paintServerButton();
+
+  if (server.on) {
+    const pid = server.projectId || currentProjectId;
+    if (!pid) {
+      toast('Server on. Open a project and hit Run Website.');
+      return;
+    }
+    server.projectId = pid;
+    openPreview(pid);
+  } else {
+    stopPreview();
+    toast('Server stopped.');
+  }
+}
+
+function paintServerButton() {
+  const btn = $('serverToggle');
+  const label = $('serverToggleLabel');
+  const pill = $('previewServerPill');
+  if (btn) btn.classList.toggle('is-on', server.on);
+  if (label) label.textContent = server.on ? 'Server on' : 'Server off';
+  if (pill) {
+    pill.textContent = server.on ? 'server running' : 'server offline';
+    pill.classList.toggle('is-on', server.on);
+  }
+}
+
+function runProjectUI() {
+  const p = DB.data().projects[currentProjectId];
+  if (!p) return;
+  if (!Object.keys(p.files || {}).length) {
+    toast('Add or upload some files first.', true);
+    return;
+  }
+  server.on = true;
+  server.projectId = p.id;
+  paintServerButton();
+  openPreview(p.id);
+}
+
+function openPreview(projectId) {
+  const p = DB.data().projects[projectId];
+  if (!p) { toast('Project not found.', true); return; }
+  server.projectId = projectId;
+
+  $('previewTitle').textContent = 'Live Preview — ' + p.name;
+
+  // Entry-file picker: every HTML file, index.html first.
+  const htmlFiles = Object.keys(p.files).filter(n => ['html', 'htm'].includes(extOf(n)))
+    .sort((a, b) => (a.toLowerCase().startsWith('index') ? -1 : 0) - (b.toLowerCase().startsWith('index') ? -1 : 0));
+  const sel = $('previewEntrySelect');
+  sel.innerHTML = htmlFiles.length
+    ? htmlFiles.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    : `<option value="">no .html file found</option>`;
+
+  openKnightPage('previewPage');
+  runPreview();
+}
+
+/** Assemble the project into one document and hand it to the iframe. */
+function runPreview() {
+  const p = DB.data().projects[server.projectId];
+  const frame = $('previewFrame');
+  const log = $('previewConsole');
+  if (!p || !frame) return;
+
+  if (!server.on) {
+    log.textContent = 'Server is off. Use the button in the corner to start it.';
+    frame.removeAttribute('srcdoc');
+    return;
+  }
+
+  const entry = $('previewEntrySelect').value;
+  const lines = [];
+  lines.push('> starting local preview server');
+  lines.push('> project: ' + p.name);
+  lines.push('> files detected: ' + Object.keys(p.files).length);
+
+  let html;
+  if (entry && p.files[entry] !== undefined) {
+    html = inlineProject(p, entry, lines);
+    lines.push('> entry: ' + entry);
+  } else {
+    // No HTML at all — show what the project does contain instead of a blank frame.
+    html = fallbackIndex(p);
+    lines.push('! no .html entry file — showing a generated file index');
+  }
+
+  frame.srcdoc = html;
+  lines.push('> preview ready');
+  log.textContent = lines.join('\n');
+  paintServerButton();
+}
+
+/** Rewrite <link>, <script src> and <img src> to use the project's own files. */
+function inlineProject(p, entry, log = []) {
+  let html = p.files[entry] || '';
+  const clean = (u) => (u || '').trim().replace(/^\.?\//, '').split(/[?#]/)[0];
+
+  // stylesheets
+  html = html.replace(/<link[^>]*rel=["']?stylesheet["']?[^>]*>/gi, (tag) => {
+    const m = tag.match(/href=["']([^"']+)["']/i);
+    const name = clean(m && m[1]);
+    if (name && p.files[name] !== undefined) {
+      log.push('> inlined stylesheet ' + name);
+      return '<style>\n' + p.files[name] + '\n</style>';
+    }
+    return /^https?:/i.test((m && m[1]) || '') ? tag : '<!-- missing stylesheet: ' + (name || '?') + ' -->';
+  });
+
+  // scripts
+  html = html.replace(/<script[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi, (tag, src) => {
+    const name = clean(src);
+    if (p.files[name] !== undefined) {
+      log.push('> inlined script ' + name);
+      return '<script>\n' + p.files[name] + '\n<\/script>';
+    }
+    return /^https?:/i.test(src) ? tag : '<!-- missing script: ' + name + ' -->';
+  });
+
+  // images stored as data URLs
+  html = html.replace(/(<img[^>]*src=["'])([^"']+)(["'])/gi, (full, a, src, b) => {
+    const name = clean(src);
+    if (p.files[name] !== undefined && String(p.files[name]).startsWith('data:')) {
+      return a + p.files[name] + b;
+    }
+    return full;
+  });
+
+  // pipe the preview's console output back into Knight's console panel
+  const bridge = `<script>
+    (function(){
+      var send = function(kind, args){
+        try { parent.postMessage({ __knightLog: true, kind: kind,
+          text: Array.prototype.map.call(args, String).join(' ') }, '*'); } catch(e){}
+      };
+      ['log','warn','error','info'].forEach(function(k){
+        var orig = console[k];
+        console[k] = function(){ send(k, arguments); orig.apply(console, arguments); };
+      });
+      window.onerror = function(m, s, l){ send('error', [m + ' (line ' + l + ')']); };
+    })();
+  <\/script>`;
+
+  return html.includes('<head>') ? html.replace('<head>', '<head>' + bridge) : bridge + html;
+}
+
+function fallbackIndex(p) {
+  const rows = Object.keys(p.files).map(n =>
+    `<li><code>${esc(n)}</code> — ${String(p.files[n] || '').length} bytes</li>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{font-family:ui-monospace,monospace;background:#100f11;color:#e8e6e3;padding:32px;line-height:1.7;}
+    h1{font-size:1.1rem;margin-bottom:4px;} p{color:#9a9691;font-size:.85rem;margin-bottom:18px;}
+    li{margin-bottom:6px;} code{color:#F3C623;}</style></head><body>
+    <h1>${esc(p.name)}</h1>
+    <p>This project has no <code>index.html</code>, so there is no page to render yet.</p>
+    <ul>${rows || '<li>No files.</li>'}</ul></body></html>`;
+}
+
+function stopPreview() {
+  const frame = $('previewFrame');
+  if (frame) frame.removeAttribute('srcdoc');
+  if (server.blobUrl) { URL.revokeObjectURL(server.blobUrl); server.blobUrl = null; }
+  server.on = false;
+  paintServerButton();
+}
+
+function setPreviewWidth(w) {
+  const frame = $('previewFrame');
+  if (frame) frame.style.width = w;
+}
+
+function openPreviewInTab() {
+  const p = DB.data().projects[server.projectId];
+  if (!p) return;
+  const entry = $('previewEntrySelect').value;
+  const html = entry && p.files[entry] !== undefined ? inlineProject(p, entry) : fallbackIndex(p);
+  if (server.blobUrl) URL.revokeObjectURL(server.blobUrl);
+  server.blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  window.open(server.blobUrl, '_blank');
+}
+
+/* ----- terminal handoff ----- */
+
+const LANG_BY_EXT = {
+  js: 'javascript', mjs: 'javascript', py: 'python', java: 'java', c: 'c',
+  cpp: 'c++', ts: 'typescript', go: 'go', rs: 'rust', php: 'php', rb: 'ruby', sh: 'bash',
+};
+
+function sendProjectToTerminalUI() {
+  const p = DB.data().projects[currentProjectId];
+  if (!p) return;
+
+  const runnable = Object.keys(p.files).filter(n => LANG_BY_EXT[extOf(n)]);
+  if (!runnable.length) {
+    // A pure website belongs in the preview, not a language runtime.
+    const hasHtml = Object.keys(p.files).some(n => ['html', 'htm'].includes(extOf(n)));
+    toast(hasHtml ? 'This is a website — use Run Website instead.'
+                  : 'No runnable code file found (.js, .py, .java, .cpp…).', true);
+    if (hasHtml) runProjectUI();
+    return;
+  }
+
+  const file = runnable.length === 1
+    ? runnable[0]
+    : (prompt('Which file should the Terminal run?\n\n' + runnable.join('\n'), runnable[0]) || '').trim();
+  if (!file || !p.files[file]) return;
+
+  $('termLanguage').value = LANG_BY_EXT[extOf(file)];
+  $('termCodeInput').value = p.files[file];
+  $('termOutput').textContent = 'Loaded ' + file + ' from ' + p.name + '. Hit Run.';
+  openKnightPage('terminalPage');
+  toast(file + ' loaded into the Terminal.');
+}
+
+/* ----- export / deploy ----- */
+
+function exportProjectUI(projectId) {
+  const p = DB.data().projects[projectId || currentProjectId];
+  if (!p) return;
+  const entry = Object.keys(p.files).find(n => n.toLowerCase() === 'index.html')
+             || Object.keys(p.files).find(n => ['html', 'htm'].includes(extOf(n)));
+  if (!entry) { toast('Needs an .html file to export as a website.', true); return; }
+
+  const html = inlineProject(p, entry);
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = p.name.replace(/[^a-z0-9._-]/gi, '-') + '.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Exported. Drop this file on Netlify Drop to put it online.');
 }
 
 /* ---------------------------------------------------------------------------
@@ -2187,6 +2847,31 @@ function boot() {
   $$('.modal-overlay').forEach(m => {
     m.onclick = (e) => { if (e.target === m) m.classList.remove('active'); };
   });
+
+  // New-project dropzone: click to browse, drag to drop.
+  const drop = $('newProjDrop');
+  if (drop) {
+    drop.onclick = () => $('newProjFiles').click();
+    $('newProjFiles').onchange = (e) => handleNewProjectFiles(e.target.files);
+    ['dragenter', 'dragover'].forEach(ev =>
+      drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('is-over'); }));
+    ['dragleave', 'drop'].forEach(ev =>
+      drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('is-over'); }));
+    drop.addEventListener('drop', (e) => handleNewProjectFiles(e.dataTransfer.files));
+  }
+
+  // Console output from inside the preview iframe.
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || !m.__knightLog) return;
+    const log = $('previewConsole');
+    if (!log) return;
+    const tag = m.kind === 'error' ? '!' : m.kind === 'warn' ? '~' : '·';
+    log.textContent += '\n' + tag + ' ' + m.text;
+    log.scrollTop = log.scrollHeight;
+  });
+
+  paintServerButton();
 
   bindPrefToggles();
   setupKeyboard();
@@ -2251,5 +2936,10 @@ Object.assign(window, {
   runCodeUI, startMemoryGame, flipCard,
   addPasskeyUI, removePasskey,
   requestCameraAccessUI, saveCameraSettingsUI, stopCameraPreviewUI, resetLocalPrefsUI,
-  openCommandPalette,
+  openCommandPalette, dpadPress, edgeScroll, applyDevice,
+  openNewProjectModal, removePendingFile, uploadProjectFilesUI,
+  toggleServer, runProjectUI, openPreview, runPreview, stopPreview,
+  setPreviewWidth, openPreviewInTab, sendProjectToTerminalUI, exportProjectUI,
+  openPreviewFor, saveDeployUrlFor, handleNewProjectFiles,
+  setNotifFilter, markAllNotificationsRead, deleteNotification,
 });
