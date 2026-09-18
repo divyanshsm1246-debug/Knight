@@ -36,6 +36,7 @@ const LS = {
   session:  'knight.session.v3',
   data:     'knight.data.v3',      // projects, notes, messages, friendships…
   prefs:    'knight.prefs.v3',
+  backendTokens: 'knight.backendTokens.v1',   // { email: token } — only used if API_BASE is set
 };
 
 /* ---------------------------------------------------------------------------
@@ -122,17 +123,33 @@ function toast(msg, isError = false) {
 const DB = {
   serverUp: false,
 
-  /** Try the server; on ANY failure return null so callers fall back to local. */
+  /** Backend session tokens are kept separate from local session data — one
+      per email, since several accounts can exist on the same device. */
+  backendToken(email) {
+    const t = readJSON(LS.backendTokens, {});
+    return t[(email || '').toLowerCase()] || null;
+  },
+  setBackendToken(email, token) {
+    const t = readJSON(LS.backendTokens, {});
+    t[(email || '').toLowerCase()] = token;
+    writeJSON(LS.backendTokens, t);
+  },
+
+  /** Try the server; on ANY failure return null so callers fall back to local.
+      Pass rawResponse:true to get the fetch Response back instead of parsed JSON
+      (needed for non-JSON endpoints, like the deployed site's own HTML). */
   async server(path, options = {}) {
     if (!API_BASE) return null;
     try {
-      const res = await fetch(API_BASE + path, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-      });
+      const email = options.authEmail || (me() && me().email);
+      const token = email ? this.backendToken(email) : null;
+      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+      if (token && !headers.Authorization) headers.Authorization = 'Bearer ' + token;
+
+      const res = await fetch(API_BASE + path, { ...options, headers });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       this.serverUp = true;
-      return await res.json();
+      return options.rawResponse ? res : await res.json();
     } catch (e) {
       if (this.serverUp) console.warn('[Knight] server unreachable, using local data.', e);
       this.serverUp = false;
@@ -146,7 +163,7 @@ const DB = {
   data() {
     return readJSON(LS.data, {
       projects: {}, notes: {}, messages: {}, friendRequests: [],
-      notifications: {}, links: {},
+      notifications: {}, links: {}, presence: {},
     });
   },
   saveData(d) {
@@ -287,11 +304,13 @@ async function doSignUp(email, password) {
   users[key] = user;
   DB.saveUsers(users);
 
-  // Best-effort mirror to the Java backend. Failure here is NOT fatal.
+  // Best-effort mirror to the Java backend. Failure here is NOT fatal — Knight
+  // works entirely offline. When the backend IS reachable, this captures the
+  // real session token, which is what later lets Deploy actually reach it.
   DB.server('/api/auth/signup', {
-    method: 'POST',
+    method: 'POST', authEmail: key,
     body: JSON.stringify({ email: key, username, passHash: user.passHash, socialId: user.socialId }),
-  });
+  }).then(r => { if (r && r.token) DB.setBackendToken(key, r.token); });
 
   seedNotifications(user.id, true);
   return user;
@@ -309,6 +328,12 @@ async function doSignIn(email, password) {
   }
   const hash = await sha256(password + key);
   if (user.passHash !== hash) throw new Error('Incorrect passphrase. Try again.');
+
+  DB.server('/api/auth/signin', {
+    method: 'POST', authEmail: key,
+    body: JSON.stringify({ email: key, passHash: hash }),
+  }).then(r => { if (r && r.token) DB.setBackendToken(key, r.token); });
+
   return user;
 }
 
@@ -353,22 +378,9 @@ async function handleAuthSubmit(e) {
 }
 
 /** Guest bypass — a real, working, throwaway account. */
-function signInAsGuest() {
-  const users = DB.users();
-  const n = Object.values(users).filter(u => u.guest).length + 1;
-  const user = newUserRecord({
-    email: 'guest-' + Date.now() + '@local',
-    username: 'guest_' + n,
-    role: 'Both',
-    guest: true,
-  });
-  users[user.email] = user;
-  DB.saveUsers(users);
-  setSession(user.id, false);   // guests are never remembered
-  seedNotifications(user.id, true);
-  enterApp(user, { fresh: true });
-  toast('Guest session started — create an account any time to keep your work.');
-}
+// Guest mode has been removed — every session now needs a real account.
+// (Storage → "Purge Old Guest Accounts" in Settings still exists to clean up
+// any guest accounts created before this change.)
 
 function signOutUI() {
   stopPreview();
@@ -962,9 +974,189 @@ function respondToRequest(reqId, accept) {
   toast(accept ? 'Friend added.' : 'Request declined.');
 }
 
+/* ===========================================================================
+   12.5 NEARBY KNIGHTS — live, precise proximity discovery, AirDrop-style.
+
+   Two layers, same as everything else that needs the outside world:
+   - LOCAL: presence is written into DB.data().presence, so two tabs/guest
+     accounts on this one device can find each other for testing, instantly.
+   - REAL: if API_BASE is configured, the same position is also pushed to the
+     backend's /api/presence, which is the only way two different phones can
+     actually discover each other — no browser can see another device.
+=========================================================================== */
+
+const nearby = {
+  live: false,
+  watchId: null,
+  lastPos: null,
+  seenThisSession: new Set(),   // socialIds already prompted, so it doesn't nag
+  pollTimer: null,
+};
+
+const NEARBY_RADIUS_M = 300;
+const NEARBY_STALE_MS = 2 * 60 * 1000;
+
+/** Great-circle distance in meters — same formula the backend uses, kept in
+    sync so local and server results read the same to the person using it. */
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(m) {
+  return m < 1000 ? Math.round(m) + ' m away' : (m / 1000).toFixed(1) + ' km away';
+}
+
+function toggleNearbyLive() {
+  nearby.live ? stopNearbyLive() : startNearbyLive();
+}
+
+function startNearbyLive() {
+  if (!navigator.geolocation) { toast('Geolocation is not available in this browser.', true); return; }
+  nearby.live = true;
+  nearby.seenThisSession.clear();
+  paintNearbyStatus('Getting a precise fix…');
+
+  nearby.watchId = navigator.geolocation.watchPosition(
+    (pos) => { nearby.lastPos = pos.coords; reportPresence(pos.coords); },
+    (err) => { paintNearbyStatus('Location error: ' + err.message); },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+
+  nearby.pollTimer = setInterval(scanNearby, 8000);
+  scanNearby();
+}
+
+function stopNearbyLive() {
+  nearby.live = false;
+  if (nearby.watchId !== null) navigator.geolocation.clearWatch(nearby.watchId);
+  if (nearby.pollTimer) clearInterval(nearby.pollTimer);
+  nearby.watchId = null; nearby.pollTimer = null;
+
+  const d = DB.data();
+  d.presence = d.presence || {};
+  delete d.presence[myId()];
+  DB.saveData(d);
+  DB.server('/api/presence', { method: 'DELETE' });
+
+  paintNearbyStatus('Off — your location isn\'t being shared.');
+  const list = $('nearbyList');
+  if (list) list.innerHTML = '';
+}
+
+function reportPresence(coords) {
+  const d = DB.data();
+  d.presence = d.presence || {};
+  d.presence[myId()] = { lat: coords.latitude, lng: coords.longitude, accuracy: coords.accuracy, at: Date.now() };
+  DB.saveData(d);
+
+  DB.server('/api/presence', {
+    method: 'POST',
+    body: JSON.stringify({ lat: coords.latitude, lng: coords.longitude, accuracy: coords.accuracy }),
+  });
+
+  paintNearbyStatus('Live — accurate to ±' + Math.round(coords.accuracy) + 'm');
+}
+
+function paintNearbyStatus(text) {
+  const btn = $('nearbyToggleBtn');
+  const status = $('nearbyStatusText');
+  if (btn) { btn.textContent = nearby.live ? 'Stop Sharing' : 'Go Live'; btn.classList.toggle('btn-golden', !nearby.live); }
+  if (status) { status.textContent = text; status.classList.toggle('is-live', nearby.live); }
+}
+
+/** Local device candidates (other tabs/accounts sharing this browser's storage). */
+function localNearbyCandidates() {
+  const pres = DB.data().presence || {};
+  const mine = pres[myId()];
+  if (!mine) return [];
+  const out = [];
+  Object.entries(pres).forEach(([uid, p]) => {
+    if (uid === myId() || Date.now() - p.at > NEARBY_STALE_MS) return;
+    const dist = haversineMeters(mine.lat, mine.lng, p.lat, p.lng);
+    if (dist <= NEARBY_RADIUS_M) {
+      const u = userById(uid);
+      if (u) out.push({ socialId: u.socialId, username: u.username, distanceMeters: Math.round(dist) });
+    }
+  });
+  return out;
+}
+
+async function scanNearby() {
+  if (!nearby.live || !nearby.lastPos) return;
+  const local = localNearbyCandidates();
+
+  let remote = [];
+  if (API_BASE) {
+    const r = await DB.server('/api/presence/nearby?lat=' + nearby.lastPos.latitude
+      + '&lng=' + nearby.lastPos.longitude + '&radiusMeters=' + NEARBY_RADIUS_M);
+    if (Array.isArray(r)) remote = r;
+  }
+
+  const bySocialId = {};
+  [...local, ...remote].forEach(c => {
+    if (!bySocialId[c.socialId] || c.distanceMeters < bySocialId[c.socialId].distanceMeters) bySocialId[c.socialId] = c;
+  });
+  const candidates = Object.values(bySocialId).sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+  renderNearbyList(candidates);
+
+  const already = (me().friends || []);
+  const alreadySocialIds = already.map(id => { const u = userById(id); return u ? u.socialId : null; }).filter(Boolean);
+
+  const fresh = candidates.find(c =>
+    !alreadySocialIds.includes(c.socialId) && !nearby.seenThisSession.has(c.socialId));
+  if (fresh) {
+    nearby.seenThisSession.add(fresh.socialId);
+    showNearbyPrompt(fresh);
+  }
+}
+
+function renderNearbyList(candidates) {
+  const box = $('nearbyList');
+  if (!box) return;
+  if (!nearby.live) { box.innerHTML = ''; return; }
+
+  box.innerHTML = candidates.length
+    ? candidates.map(c => `<div class="friend-row">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="nearby-live-dot"></span>
+          <div><b>${esc(c.username)}</b>
+          <div style="font-size:.74rem;color:var(--text-tertiary);">${esc(c.socialId)} · ${formatDistance(c.distanceMeters)}</div></div>
+        </div>
+        <button class="nav-cta btn-golden" onclick="sendFriendRequest('${esc(c.socialId)}')">Add Friend</button>
+      </div>`).join('')
+    : `<p style="font-size:.82rem;color:var(--text-tertiary);">Searching nearby… nobody else is live right now.</p>`;
+}
+
+let nearbyPromptCandidate = null;
+
+function showNearbyPrompt(c) {
+  nearbyPromptCandidate = c;
+  $('nearbyPromptAvatar').textContent = (c.username || '?').slice(0, 1).toUpperCase();
+  $('nearbyPromptName').textContent = c.username;
+  $('nearbyPromptDistance').textContent = formatDistance(c.distanceMeters);
+  openModalRaw('nearbyPromptModal');
+}
+
+function acceptNearbyPrompt() {
+  if (nearbyPromptCandidate) sendFriendRequest(nearbyPromptCandidate.socialId);
+  closeModal('nearbyPromptModal');
+}
+
+function dismissNearbyPrompt() {
+  closeModal('nearbyPromptModal');
+}
+
 function renderSocialPage() {
   const u = me(); if (!u) return;
   $('socialPageMyId').textContent = u.socialId;
+  paintNearbyStatus(nearby.live ? 'Live — searching nearby' : "Off — your location isn't being shared.");
+  if (nearby.live) scanNearby(); else renderNearbyList([]);
 
   const d = DB.data();
   const incoming = d.friendRequests.filter(r => r.to === u.id && r.status === 'pending');
@@ -1326,6 +1518,91 @@ function openProjectDetail(id, fromRouter = false) {
   renderVersions(p, isOwner);
   renderMembers(p, isOwner);
   renderChangeRequests(p, isOwner || role === 'editor');
+  renderProjectStats(p);
+  renderProjectActivity(p);
+  renderProjectDeployPanel(p, isOwner || canEdit);
+  updateProjectTabCounts(p);
+  setProjectTab(projectActiveTab);
+}
+
+/* ----- GitHub-style component tabs ----- */
+
+let projectActiveTab = 'overview';
+
+const PROJECT_TABS = ['overview', 'files', 'versions', 'contributors', 'changes', 'deploy'];
+
+function setProjectTab(tab) {
+  projectActiveTab = tab;
+  PROJECT_TABS.forEach(t => {
+    const btn = document.querySelector('.proj-tab[data-tab="' + t + '"]');
+    if (btn) btn.classList.toggle('active', t === tab);
+    const panel = $('projPanel-' + t);
+    if (panel) panel.classList.toggle('active', t === tab);
+  });
+}
+
+function updateProjectTabCounts(p) {
+  const set = (id, n) => { const el = $(id); if (el) el.textContent = n ? ' ' + n : ''; };
+  set('tabCountFiles', Object.keys(p.files || {}).length);
+  set('tabCountVersions', (p.versions || []).length);
+  set('tabCountMembers', (p.members || []).length + 1);   // +1 for the owner
+  set('tabCountChanges', (p.changeRequests || []).filter(c => c.status === 'pending').length);
+}
+
+function renderProjectStats(p) {
+  const box = $('projStatsRow');
+  if (!box) return;
+  const fileCount = Object.keys(p.files || {}).length;
+  const totalLines = Object.values(p.files || {}).reduce((s, c) => s + String(c || '').split('\n').length, 0);
+  const stats = [
+    ['Files', fileCount], ['Lines', totalLines],
+    ['Versions', (p.versions || []).length], ['Stars', p.stars || 0],
+    ['Contributors', (p.members || []).length + 1],
+  ];
+  box.innerHTML = stats.map(([label, val]) =>
+    `<div class="proj-stat"><div class="proj-stat-val">${val}</div><div class="proj-stat-label">${label}</div></div>`
+  ).join('');
+}
+
+/** A quick, chronological read of what actually happened on this project —
+    built from versions + accepted/pending changes, no separate log to keep. */
+function renderProjectActivity(p) {
+  const box = $('projectActivityList');
+  if (!box) return;
+  const events = [];
+  (p.versions || []).forEach(v => events.push({ at: v.at, text: v.label + ' cut — ' + (v.note || 'no description') }));
+  (p.changeRequests || []).forEach(c => {
+    const by = userById(c.by);
+    events.push({ at: c.at, text: (by ? by.username : 'someone') + ' proposed a change to ' + c.file
+      + (c.status !== 'pending' ? ' (' + c.status + ')' : ' — awaiting review') });
+  });
+  events.sort((a, b) => b.at - a.at);
+
+  box.innerHTML = events.length
+    ? events.slice(0, 8).map(e => `<div class="proj-activity-row">
+        <span class="proj-activity-dot"></span>
+        <span class="proj-activity-text">${esc(e.text)}</span>
+        <span class="proj-activity-time">${timeAgo(e.at)}</span></div>`).join('')
+    : `<p style="font-size:.82rem;color:var(--text-tertiary);">Nothing yet — add a file or cut a version to get started.</p>`;
+}
+
+function renderProjectDeployPanel(p, canDeploy) {
+  const note = $('projectDeployNote');
+  const actions = $('projectDeployActionsRow');
+  if (!note || !actions) return;
+
+  note.className = 'cloud-note ' + (API_BASE ? 'is-ready' : 'is-off');
+  note.innerHTML = API_BASE
+    ? `<b>Knight Cloud is connected.</b> Deploy gives this project a real, working link — anyone can open it, not just this browser.`
+    : `<b>Knight Cloud isn't connected yet.</b> Deploy <code>KnightBackendApplication.java</code> and set <code>API_BASE</code> in script.js for a real <code>your-app.onrender.com/website/xxxx</code> link. Until then, build the .html and drop it on Netlify Drop yourself.`;
+
+  const hasHtml = Object.keys(p.files || {}).some(n => ['html', 'htm'].includes(extOf(n)));
+  actions.innerHTML = !hasHtml
+    ? `<span style="font-size:.8rem;color:var(--text-tertiary);">Add an .html file first — nothing to deploy yet.</span>`
+    : !canDeploy
+    ? `<span style="font-size:.8rem;color:var(--text-tertiary);">Only owners and editors can deploy this project.</span>`
+    : `<button class="nav-cta" onclick="exportProjectUI('${p.id}')">Build .html</button>
+       <button class="nav-cta ${API_BASE ? 'btn-golden' : ''}" onclick="deployProjectToCloudUI('${p.id}')">☁ Deploy to Cloud</button>`;
 }
 
 function renderProjectFiles(p, role) {
@@ -2059,6 +2336,14 @@ function measureFPS() {
 }
 
 function renderLinkDeployer() {
+  const banner = $('linkDeployerCloudNote');
+  if (banner) {
+    banner.className = 'cloud-note ' + (API_BASE ? 'is-ready' : 'is-off');
+    banner.innerHTML = API_BASE
+      ? `<b>Knight Cloud is connected.</b> Deploy gives you a real, working link at this server's own address — reachable by anyone, not just this browser.`
+      : `<b>Knight Cloud isn't connected yet.</b> Deploy the included <code>KnightBackendApplication.java</code> (Render, Railway, wherever) and set <code>API_BASE</code> at the top of script.js. Once that's done, a real <code>your-app.onrender.com/website/xxxx</code> link is one click away. Until then, use Build .html below and drop it on Netlify Drop yourself.`;
+  }
+
   const projects = Object.values(DB.data().projects).filter(p => p.ownerId === myId());
   $('linkDeployerList').innerHTML = projects.length
     ? projects.map(p => {
@@ -2075,12 +2360,14 @@ function renderLinkDeployer() {
           </div>
           <div class="deploy-actions">
             ${web ? `<button class="nav-cta btn-golden" onclick="openPreviewFor('${p.id}')">▶ Preview</button>
-                     <button class="nav-cta" onclick="exportProjectUI('${p.id}')">Build .html</button>` : ''}
+                     <button class="nav-cta" onclick="exportProjectUI('${p.id}')">Build .html</button>
+                     <button class="nav-cta ${API_BASE ? 'btn-golden' : ''}" onclick="deployProjectToCloudUI('${p.id}')"
+                       title="${API_BASE ? 'Deploy a real live link' : 'Configure API_BASE first — see the note above'}">☁ Deploy to Cloud</button>` : ''}
             <button class="nav-cta" onclick="openProjectDetail('${p.id}')">Open project</button>
           </div>
           <div class="friend-add-row">
             <input type="url" id="deployUrl-${p.id}" value="${esc(p.deployedUrl || '')}"
-              placeholder="https://your-site.netlify.app">
+              placeholder="https://your-site.netlify.app or a Knight Cloud link">
             <button class="nav-cta" onclick="saveDeployUrlFor('${p.id}')">Save link</button>
           </div>
         </div>`;
@@ -2796,6 +3083,7 @@ function openPreview(projectId) {
     : `<option value="">no .html file found</option>`;
 
   openKnightPage('previewPage');
+  recordRecentBuild(p);
   runPreview();
 }
 
@@ -2957,6 +3245,97 @@ function sendProjectToTerminalUI() {
 
 /* ----- export / deploy ----- */
 
+/** Push a project's basic metadata to the backend once, so it has a server-side
+    id to deploy against. Cached on the project as backendId — a local project
+    (string uid) and a backend project (Long id) are different records on
+    purpose; this link is only created the first time something is deployed. */
+async function ensureBackendProject(p) {
+  if (p.backendId) return p.backendId;
+  const created = await DB.server('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: p.name, description: p.description, category: p.category,
+      visibility: p.visibility, tags: p.tags,
+    }),
+  });
+  if (!created || !created.id) return null;
+
+  const d = DB.data();
+  if (d.projects[p.id]) { d.projects[p.id].backendId = created.id; DB.saveData(d); }
+  return created.id;
+}
+
+/** The real deploy: bundle the site, push it to the backend, get back a live
+    onrender.com/website/xxxx-style URL. Requires KnightBackendApplication.java
+    to actually be deployed and API_BASE (top of this file) pointed at it —
+    without that, this tells you so instead of pretending to succeed. */
+async function deployProjectToCloudUI(projectId) {
+  if (!requireAuth()) return;
+  const d = DB.data();
+  const p = d.projects[projectId || currentProjectId];
+  if (!p) return;
+
+  const role = myRoleOn(p);
+  if (role !== 'owner' && role !== 'editor') { toast('Only owners and editors can deploy.', true); return; }
+
+  const entry = Object.keys(p.files).find(n => n.toLowerCase() === 'index.html')
+             || Object.keys(p.files).find(n => ['html', 'htm'].includes(extOf(n)));
+  if (!entry) { toast('Needs an .html file to deploy as a website.', true); return; }
+
+  const log = $('previewConsole');
+  const say = (line) => { if (log) { log.textContent += '\n' + line; log.scrollTop = log.scrollHeight; } };
+
+  if (!API_BASE) {
+    toast('No cloud backend is configured yet — see the note under Link Deployer.', true);
+    say('! deploy failed: no backend configured (API_BASE is empty)');
+    return;
+  }
+  if (!DB.backendToken(me().email)) {
+    toast('This account has no live backend session yet. Sign out and back in while the backend is reachable, then try again.', true);
+    say('! deploy failed: no authenticated backend session for this account');
+    return;
+  }
+
+  say('$ knight deploy ' + p.name);
+  say('> bundling ' + entry + ' + ' + (Object.keys(p.files).length - 1) + ' linked file(s)…');
+  toast('Deploying ' + p.name + '…');
+  const built = inlineProject(p, entry);
+  say('> bundle ready (' + formatBytes(built.length) + ')');
+
+  say('> connecting to Knight Cloud backend…');
+  const backendId = await ensureBackendProject(p);
+  if (!backendId) {
+    say('! could not reach the backend — is it deployed and awake?');
+    toast('Could not reach the Knight Cloud backend — is it deployed and awake?', true);
+    return;
+  }
+  say('> project registered on backend (id ' + backendId + ')');
+  say('> uploading bundle…');
+
+  const result = await DB.server('/api/projects/' + backendId + '/deploy', {
+    method: 'POST',
+    body: JSON.stringify({ html: built }),
+  });
+
+  if (!result || !result.url) {
+    say('! deploy failed — the backend did not respond');
+    toast('Deploy failed — the backend did not respond. Try again in a moment.', true);
+    return;
+  }
+
+  say('> live at ' + result.url);
+  say('deploy #' + (result.deployCount || 1) + ' complete');
+
+  const d2 = DB.data();
+  d2.projects[p.id].deployedUrl = result.url;
+  DB.saveData(d2);
+  const field = $('deployUrl-' + p.id);
+  if (field) field.value = result.url;
+  renderLinkDeployer();
+  toast('Live at ' + result.url);
+  return result.url;
+}
+
 function exportProjectUI(projectId) {
   const p = DB.data().projects[projectId || currentProjectId];
   if (!p) return;
@@ -2982,21 +3361,29 @@ function exportProjectUI(projectId) {
 
 /** Services Knight recognises well enough to know which keys they need. */
 const KNOWN_SERVICES = [
-  { key: 'supabase', label: 'Supabase',   match: /supabase|SUPABASE_URL|SUPABASE_ANON_KEY/i,
+  { key: 'supabase', label: 'Supabase',
+    match: /from\s+['"]@supabase\/supabase-js['"]|require\(['"]@supabase\/supabase-js['"]\)|createClient\s*\(|\bSUPABASE_URL\b|\bSUPABASE_ANON_KEY\b/,
     vars: [{ name: 'SUPABASE_URL', placeholder: 'https://xxxx.supabase.co' },
            { name: 'SUPABASE_ANON_KEY', placeholder: 'eyJhbGciOi...', secret: true }] },
-  { key: 'firebase', label: 'Firebase',   match: /firebase|FIREBASE_API_KEY/i,
+  { key: 'firebase', label: 'Firebase',
+    match: /from\s+['"]firebase\/|require\(['"]firebase|initializeApp\s*\(|\bFIREBASE_API_KEY\b/,
     vars: [{ name: 'FIREBASE_API_KEY', placeholder: 'AIzaSy...', secret: true },
            { name: 'FIREBASE_PROJECT_ID', placeholder: 'my-app-12345' }] },
-  { key: 'stripe', label: 'Stripe',       match: /stripe|STRIPE_PUBLIC_KEY|STRIPE_SECRET_KEY/i,
+  { key: 'stripe', label: 'Stripe',
+    match: /from\s+['"]@stripe\/|require\(['"]stripe['"]\)|Stripe\s*\(\s*['"]pk_|\bSTRIPE_PUBLIC_KEY\b|\bSTRIPE_SECRET_KEY\b/,
     vars: [{ name: 'STRIPE_PUBLIC_KEY', placeholder: 'pk_live_...' }] },
-  { key: 'openai', label: 'OpenAI',       match: /openai|OPENAI_API_KEY/i,
+  { key: 'openai', label: 'OpenAI',
+    match: /from\s+['"]openai['"]|require\(['"]openai['"]\)|new\s+OpenAI\s*\(|\bOPENAI_API_KEY\b/,
     vars: [{ name: 'OPENAI_API_KEY', placeholder: 'sk-...', secret: true }] },
-  { key: 'mongodb', label: 'MongoDB',     match: /mongodb|MONGODB_URI|mongoose\.connect/i,
+  { key: 'mongodb', label: 'MongoDB',
+    match: /require\(['"]mongodb['"]\)|require\(['"]mongoose['"]\)|mongoose\.connect\s*\(|MongoClient\s*\(|\bMONGODB_URI\b/,
     vars: [{ name: 'MONGODB_URI', placeholder: 'mongodb+srv://...', secret: true }] },
 ];
 
-/** Scan a project's own files for references to a known external service. */
+/** Scan a project's own files for the service actually being wired up — an
+    import/constructor call or a real env-var name — not just the word
+    "stripe" showing up in a comment or a filename. A plain mock/demo page
+    with no such code should never be interrupted asking for keys it doesn't need. */
 function detectServiceModules(files) {
   const text = Object.values(files || {}).join('\n');
   return KNOWN_SERVICES.filter(s => s.match.test(text));
@@ -3109,6 +3496,37 @@ function typeLinesInto(el, lines, done) {
 }
 
 /** Entry point when a project is opened by clicking its card. */
+/** Recent builds, kept like a chat-history sidebar — click one to jump back in. */
+function recordRecentBuild(p) {
+  const prefs = DB.prefs();
+  const list = (prefs.recentBuilds || []).filter(r => r.projectId !== p.id);
+  list.unshift({ projectId: p.id, name: p.name, at: Date.now() });
+  prefs.recentBuilds = list.slice(0, 12);
+  DB.savePrefs(prefs);
+  renderPreviewSidebar();
+}
+
+function renderPreviewSidebar() {
+  const box = $('previewSidebarList');
+  if (!box) return;
+  const list = (DB.prefs().recentBuilds || []);
+  const projects = DB.data().projects;
+
+  box.innerHTML = list.length
+    ? list.map(r => {
+        const stillExists = !!projects[r.projectId];
+        const live = server.on && server.projectId === r.projectId;
+        return `<div class="preview-sidebar-item ${live ? 'is-active' : ''}"
+            onclick="${stillExists ? `openProjectBuild('${r.projectId}')` : ''}"
+            style="${stillExists ? '' : 'opacity:.4;cursor:default;'}">
+          <span class="preview-sidebar-dot ${live ? 'is-live' : ''}"></span>
+          <span class="preview-sidebar-name">${esc(r.name)}</span>
+          <span class="preview-sidebar-time">${timeAgo(r.at)}</span>
+        </div>`;
+      }).join('')
+    : `<p style="font-size:.76rem;color:var(--text-tertiary);padding:8px 4px;">Projects you open here will show up as a quick-switch list.</p>`;
+}
+
 async function openProjectBuild(projectId) {
   const p = DB.data().projects[projectId];
   if (!p) { show404('/project/' + projectId); return; }
@@ -3130,6 +3548,7 @@ async function openProjectBuild(projectId) {
              || Object.keys(p.files).find(n => ['html', 'htm'].includes(extOf(n)));
 
   openKnightPage('previewPage');
+  recordRecentBuild(p);
   $('previewTitle').textContent = p.name + ' — Build';
   $('buildBanner').style.display = 'flex';
   $('buildBannerText').textContent = 'Compiling ' + p.name + '…';
@@ -3274,7 +3693,6 @@ function boot() {
   $('tab-signin').onclick = () => setAuthMode('signin');
   $('tab-signup').onclick = () => setAuthMode('signup');
   $('knightForm').onsubmit = handleAuthSubmit;
-  $('guestBtn').onclick = signInAsGuest;
   $('passkeyLoginBtn').onclick = signInWithPasskey;
 
   // Signup avatar + role
@@ -3421,6 +3839,8 @@ Object.assign(window, {
   addPasskeyUI, removePasskey,
   requestCameraAccessUI, saveCameraSettingsUI, stopCameraPreviewUI, resetLocalPrefsUI,
   openCommandPalette, dpadPress, edgeScroll, applyDevice, updateServerButtonContext,
+  setProjectTab, toggleNearbyLive, acceptNearbyPrompt, dismissNearbyPrompt,
+  deployProjectToCloudUI,
   openProjectBuild, submitSecretsPrompt, skipSecretsPrompt, cancelSecretsPrompt,
   purgeOldGuestsUI, wipeAllStorageUI, renderStorageManager,
   openNewProjectModal, removePendingFile, uploadProjectFilesUI,

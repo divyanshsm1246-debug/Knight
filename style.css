@@ -844,3 +844,121 @@ body.device-smartphone .server-toggle{ right:14px; bottom:14px; padding:10px 14p
   min-width:64px; text-align:right;
 }
 .storage-actions{ display:flex; gap:10px; flex-wrap:wrap; }
+
+/* ============================================================
+   PROJECT TABS · PREVIEW SIDEBAR · NEARBY KNIGHTS · CLOUD NOTE
+   ============================================================ */
+
+.cloud-note{
+  font-size:.8rem; line-height:1.6; padding:12px 16px; border-radius:12px;
+  margin-bottom:16px; max-width:720px;
+}
+.cloud-note code{ font-family:'JetBrains Mono',monospace; font-size:.78rem; }
+.cloud-note.is-ready{ color:var(--accent-green); background:rgba(108,154,139,.08); border:1px solid rgba(108,154,139,.25); }
+.cloud-note.is-off{ color:var(--text-secondary); background:rgba(255,255,255,.03); border:1px solid var(--panel-border); }
+.cloud-note.is-off code{ color:var(--accent-gold); }
+
+/* ---------- project tabs ---------- */
+.proj-tabs{
+  display:flex; gap:4px; margin-bottom:22px; flex-wrap:wrap;
+  border-bottom:1px solid var(--panel-border); padding-bottom:0;
+}
+.proj-tab{
+  font-family:inherit; font-size:.82rem; font-weight:500; cursor:pointer;
+  display:inline-flex; align-items:center;
+  padding:10px 16px; background:none; border:none; color:var(--text-tertiary);
+  border-bottom:2px solid transparent; transition:all .18s; margin-bottom:-1px;
+}
+.proj-tab:hover{ color:var(--text-primary); }
+.proj-tab.active{ color:var(--accent-gold); border-bottom-color:var(--accent-gold); }
+.proj-tab-count{
+  font-family:'JetBrains Mono',monospace; font-size:.68rem; margin-left:5px;
+  color:var(--text-tertiary);
+}
+.proj-tab.active .proj-tab-count{ color:var(--accent-gold); }
+.proj-panel{ display:none; animation:projFade .18s ease; }
+.proj-panel.active{ display:block; }
+@keyframes projFade{ from{ opacity:0; transform:translateY(4px);} to{ opacity:1; transform:translateY(0);} }
+
+.proj-stats-row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px; }
+.proj-stat{
+  min-width:84px; padding:12px 16px; border-radius:12px;
+  background:rgba(255,255,255,.025); border:1px solid var(--panel-border); text-align:center;
+}
+.proj-stat-val{ font-size:1.25rem; font-weight:700; color:var(--text-primary); font-family:'JetBrains Mono',monospace; }
+.proj-stat-label{ font-size:.68rem; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:.08em; margin-top:2px; }
+
+.proj-activity-row{
+  display:flex; align-items:center; gap:10px; padding:9px 4px;
+  border-bottom:1px solid rgba(255,255,255,.04); font-size:.82rem;
+}
+.proj-activity-dot{ width:6px; height:6px; border-radius:50%; background:var(--accent-gold); flex-shrink:0; }
+.proj-activity-text{ flex:1; color:var(--text-secondary); }
+.proj-activity-time{ font-size:.7rem; color:var(--text-tertiary); font-family:'JetBrains Mono',monospace; flex-shrink:0; }
+
+/* ---------- preview sidebar ---------- */
+.preview-layout{ display:flex; gap:20px; align-items:flex-start; }
+.preview-sidebar{
+  width:200px; flex-shrink:0; border-right:1px solid var(--panel-border); padding-right:16px;
+}
+.preview-sidebar-label{
+  font-family:'JetBrains Mono',monospace; font-size:.66rem; text-transform:uppercase;
+  letter-spacing:.1em; color:var(--text-tertiary); margin-bottom:10px;
+}
+.preview-sidebar-list{ display:flex; flex-direction:column; gap:3px; }
+.preview-sidebar-item{
+  display:flex; align-items:center; gap:8px; padding:8px 9px; border-radius:9px;
+  cursor:pointer; transition:background .15s;
+}
+.preview-sidebar-item:hover{ background:rgba(255,255,255,.05); }
+.preview-sidebar-item.is-active{ background:rgba(108,154,139,.1); }
+.preview-sidebar-dot{ width:6px; height:6px; border-radius:50%; background:var(--text-tertiary); flex-shrink:0; }
+.preview-sidebar-dot.is-live{ background:var(--accent-green); box-shadow:0 0 6px rgba(108,154,139,.6); }
+.preview-sidebar-name{ flex:1; font-size:.78rem; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.preview-sidebar-time{ font-size:.66rem; color:var(--text-tertiary); flex-shrink:0; }
+.preview-main{ flex:1; min-width:0; }
+@media (max-width:760px){
+  .preview-layout{ flex-direction:column; }
+  .preview-sidebar{ width:100%; border-right:none; border-bottom:1px solid var(--panel-border); padding-right:0; padding-bottom:12px; }
+}
+
+/* ---------- nearby knights ---------- */
+.nearby-toggle-row{ display:flex; align-items:center; gap:14px; margin-bottom:16px; flex-wrap:wrap; }
+.nearby-status-text{ font-size:.8rem; color:var(--text-tertiary); }
+.nearby-status-text.is-live{ color:var(--accent-green); }
+.nearby-list{ display:flex; flex-direction:column; gap:8px; max-width:640px; }
+.nearby-live-dot{
+  width:8px; height:8px; border-radius:50%; background:var(--accent-green); flex-shrink:0;
+  box-shadow:0 0 0 0 rgba(108,154,139,.6); animation:nearbyPulse 2s infinite;
+}
+@keyframes nearbyPulse{
+  0%{ box-shadow:0 0 0 0 rgba(108,154,139,.55); }
+  70%{ box-shadow:0 0 0 8px rgba(108,154,139,0); }
+  100%{ box-shadow:0 0 0 0 rgba(108,154,139,0); }
+}
+
+/* ---------- AirDrop-style prompt ---------- */
+.nearby-prompt{ max-width:340px; text-align:center; padding:36px 28px 28px; }
+.nearby-prompt-avatar{
+  width:64px; height:64px; border-radius:50%; margin:0 auto 16px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:1.6rem; font-weight:700; color:#100f11;
+  background:linear-gradient(135deg, var(--accent-gold), var(--accent-coral));
+  position:relative; z-index:2;
+  animation:nearbyBounce 1.6s ease-in-out infinite;
+}
+.nearby-prompt-radar{
+  position:absolute; top:36px; left:50%; width:64px; height:64px;
+  transform:translateX(-50%); border-radius:50%;
+  border:2px solid rgba(243,198,35,.4); animation:radarPing 1.8s ease-out infinite; z-index:1;
+}
+@keyframes nearbyBounce{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-6px);} }
+@keyframes radarPing{
+  0%{ transform:translateX(-50%) scale(1); opacity:.7; }
+  100%{ transform:translateX(-50%) scale(2.4); opacity:0; }
+}
+.nearby-prompt h2{ font-size:1.05rem; font-weight:600; margin-bottom:4px; }
+.nearby-prompt-name{ font-size:1.2rem; font-weight:700; color:var(--accent-gold); margin-bottom:4px; }
+.nearby-prompt-distance{ font-size:.78rem; color:var(--text-tertiary); margin-bottom:22px; }
+.nearby-prompt-actions{ display:flex; gap:10px; }
+.nearby-prompt-actions button{ flex:1; }

@@ -29,7 +29,7 @@
     padding:10px 22px; border-radius:24px; font-size:.9rem; margin-top:6px;
   }
 </style>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%23ffffff' stroke-width='5' stroke-linejoin='round'%3E%3Cpath d='M50 6 L94 27 L94 73 L50 94 L6 73 L6 27 Z'/%3E%3Cpath d='M6 27 L50 48 L94 27'/%3E%3Cpath d='M50 48 L50 94'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%23ffffff' stroke-width='5' stroke-linejoin='round'%3E%3Cpath d='M50 6 L94 27 L94 73 L50 94 L6 73 L6 27 Z'/%3E%3Cpath d='M6 27 L50 48 L94 27'/%3E%3Cpath d='M50 48 L50 94'/%3E%3Cpath d='M50 6 L50 48' stroke-width='2.4' stroke-opacity='.4'/%3E%3Ccircle cx='50' cy='6' r='3' fill='%23ffffff' stroke='none'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -44,6 +44,12 @@
       <path d="M50 6 L94 27 L94 73 L50 94 L6 73 L6 27 Z"/>
       <path d="M6 27 L50 48 L94 27"/>
       <path d="M50 48 L50 94"/>
+      <path d="M50 6 L50 48" stroke-width="2.4" stroke-opacity=".38"/>
+      <path d="M28 16.5 L28 58" stroke-width="2.4" stroke-opacity=".3"/>
+      <path d="M72 16.5 L72 58" stroke-width="2.4" stroke-opacity=".3"/>
+      <circle cx="50" cy="6" r="2.6" fill="currentColor" stroke="none"/>
+      <circle cx="94" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
+      <circle cx="6" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
     </svg>
   <h1 style="font-size:1.3rem; margin:0;">Knight</h1>
   <p>This app can't run inside an embedded preview or compiler window.</p>
@@ -57,6 +63,12 @@
       <path d="M50 6 L94 27 L94 73 L50 94 L6 73 L6 27 Z"/>
       <path d="M6 27 L50 48 L94 27"/>
       <path d="M50 48 L50 94"/>
+      <path d="M50 6 L50 48" stroke-width="2.4" stroke-opacity=".38"/>
+      <path d="M28 16.5 L28 58" stroke-width="2.4" stroke-opacity=".3"/>
+      <path d="M72 16.5 L72 58" stroke-width="2.4" stroke-opacity=".3"/>
+      <circle cx="50" cy="6" r="2.6" fill="currentColor" stroke="none"/>
+      <circle cx="94" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
+      <circle cx="6" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
     </svg>
     Knight
   </div>
@@ -119,8 +131,7 @@
         <span class="remember-text">Remember me on this device</span>
       </label>
       <div class="auth-actions">
-        <button type="button" class="guest-btn" id="guestBtn">Guest Bypass</button>
-        <button type="submit" class="submit-btn" id="submitBtn">Authenticate</button>
+        <button type="submit" class="submit-btn" id="submitBtn" style="width:100%;">Authenticate</button>
       </div>
     </form>
     <p id="authError" style="color:var(--accent-coral); font-size:.8rem; margin-top:12px; display:none;"></p>
@@ -144,6 +155,12 @@
       <path d="M50 6 L94 27 L94 73 L50 94 L6 73 L6 27 Z"/>
       <path d="M6 27 L50 48 L94 27"/>
       <path d="M50 48 L50 94"/>
+      <path d="M50 6 L50 48" stroke-width="2.4" stroke-opacity=".38"/>
+      <path d="M28 16.5 L28 58" stroke-width="2.4" stroke-opacity=".3"/>
+      <path d="M72 16.5 L72 58" stroke-width="2.4" stroke-opacity=".3"/>
+      <circle cx="50" cy="6" r="2.6" fill="currentColor" stroke="none"/>
+      <circle cx="94" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
+      <circle cx="6" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
     </svg>
       Workspace / Nexus
       <span id="headerDeviceBadge" class="device-badge">
@@ -450,9 +467,10 @@
   </div>
 
   <div id="projectsListView">
-    <button class="nav-cta btn-golden" onclick="openModal('newProjectModal')" style="margin-bottom:20px;">+ New Project</button>
+    <button class="nav-cta btn-golden" onclick="openNewProjectModal()" style="margin-bottom:20px;">+ New Project</button>
+    <label class="font-mono" for="joinProjectCodeInput" style="display:block; font-size:.74rem; color:var(--text-tertiary); margin-bottom:6px;">Enter Your Business Passkey</label>
     <div class="friend-add-row" style="max-width:420px; margin-bottom:20px;">
-      <input type="text" id="joinProjectCodeInput" placeholder="Have a passkey? Enter it to join a project">
+      <input type="text" id="joinProjectCodeInput" placeholder="e.g. KNIGHT-A1B2C3D4E5F6">
       <button class="nav-cta" onclick="joinProjectByCodeUI()">Join</button>
     </div>
     <div class="dash-grid" id="myProjectsGrid"></div>
@@ -558,78 +576,103 @@
     <span id="projectDetailRoleBadge" class="social-id-chip" style="margin-left:auto;">owner</span>
   </div>
   <p id="projectDetailDesc" style="color:var(--text-secondary); margin-bottom:6px;"></p>
-  <div id="projectDetailTags" style="margin-bottom:20px;"></div>
+  <div id="projectDetailTags" style="margin-bottom:18px;"></div>
 
-  <div class="shortcut-category-label">Files</div>
-  <div id="projectFilesList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;"></div>
-  <div class="friend-add-row" id="addFileRow">
-    <input type="text" id="newFileNameInput" placeholder="filename.js" style="max-width:200px;">
-    <button class="nav-cta" onclick="addProjectFileUI()">+ Add File</button>
-    <label class="nav-cta" style="cursor:pointer;">Upload from computer
-      <input type="file" id="projUploadInput" multiple style="display:none;" onchange="uploadProjectFilesUI(this)">
-    </label>
+  <!-- GitHub-style component tabs — each part of the project lives on its own tab -->
+  <div class="proj-tabs">
+    <button class="proj-tab active" data-tab="overview" onclick="setProjectTab('overview')">Overview</button>
+    <button class="proj-tab" data-tab="files" onclick="setProjectTab('files')">Files<span class="proj-tab-count" id="tabCountFiles"></span></button>
+    <button class="proj-tab" data-tab="versions" onclick="setProjectTab('versions')">Versions<span class="proj-tab-count" id="tabCountVersions"></span></button>
+    <button class="proj-tab" data-tab="contributors" onclick="setProjectTab('contributors')">Contributors<span class="proj-tab-count" id="tabCountMembers"></span></button>
+    <button class="proj-tab" data-tab="changes" onclick="setProjectTab('changes')">Changes<span class="proj-tab-count" id="tabCountChanges"></span></button>
+    <button class="proj-tab" data-tab="deploy" onclick="setProjectTab('deploy')">Deploy</button>
   </div>
 
-  <div class="run-bar" id="projectRunBar">
-    <button class="nav-cta btn-golden" onclick="runProjectUI()">▶ Run Website</button>
-    <button class="nav-cta" onclick="sendProjectToTerminalUI()">Send to Terminal</button>
-    <button class="nav-cta" onclick="exportProjectUI()">Export single-file .html</button>
-    <span class="run-hint" id="projectRunHint"></span>
-  </div>
+  <!-- ===== Overview ===== -->
+  <div class="proj-panel active" id="projPanel-overview">
+    <div class="proj-stats-row" id="projStatsRow"></div>
 
-  <div class="shortcut-category-label">Versions</div>
-  <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Snapshots of every file at a point in time. Cutting a new version never overwrites an old one — you can always roll back.</p>
-  <div id="versionsList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
-  <div class="friend-add-row" id="cutVersionRow">
-    <input type="text" id="versionNoteInput" placeholder="What changed in this version? (e.g. rewrote the auth flow)">
-    <button class="nav-cta btn-golden" onclick="cutVersionUI()">+ Cut New Version</button>
-  </div>
-
-  <div class="shortcut-category-label">Contributors</div>
-  <div id="projectMembersList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
-  <div class="friend-add-row" id="inviteMemberRow">
-    <input type="text" id="newMemberSocialId" placeholder="Social ID (KNT-XXXXXX)">
-    <select id="newMemberRole" style="max-width:130px;">
-      <option value="viewer">Viewer — read only</option>
-      <option value="contributor">Contributor — proposes changes</option>
-      <option value="editor">Editor — edits directly</option>
-    </select>
-    <button class="nav-cta" onclick="addProjectMemberUI()">Invite</button>
-  </div>
-
-  <div class="shortcut-category-label" id="joinCodeSectionLabel" style="display:none;">Invite Passkey</div>
-  <div id="joinCodeSection" style="display:none; max-width:520px; margin-bottom:24px;">
-    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Anyone with this passkey can join instantly as the role below — no Social ID needed. Regenerate any time to revoke old links.</p>
-    <div class="friend-add-row" style="margin-bottom:10px;">
-      <input type="text" id="joinCodeDisplay" readonly style="font-family:'JetBrains Mono',monospace; letter-spacing:.05em;">
-      <button class="nav-cta" onclick="copyJoinCodeUI()">Copy</button>
-      <button class="nav-cta" onclick="regenerateJoinCodeUI()">Regenerate</button>
+    <div class="run-bar" id="projectRunBar">
+      <button class="nav-cta btn-golden" onclick="runProjectUI()">▶ Run Website</button>
+      <button class="nav-cta" onclick="sendProjectToTerminalUI()">Send to Terminal</button>
+      <button class="nav-cta" onclick="exportProjectUI()">Export single-file .html</button>
+      <span class="run-hint" id="projectRunHint"></span>
     </div>
-    <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
-      <label style="font-size:.82rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); cursor:pointer;">
-        <input type="checkbox" id="joinCodeEnabledToggle" onchange="saveJoinCodeSettingsUI()"> Passkey active
+
+    <div class="shortcut-category-label" style="margin-top:22px;">Recent Activity</div>
+    <div id="projectActivityList" style="display:flex; flex-direction:column; gap:8px;"></div>
+  </div>
+
+  <!-- ===== Files ===== -->
+  <div class="proj-panel" id="projPanel-files">
+    <div id="projectFilesList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;"></div>
+    <div class="friend-add-row" id="addFileRow">
+      <input type="text" id="newFileNameInput" placeholder="filename.js" style="max-width:200px;">
+      <button class="nav-cta" onclick="addProjectFileUI()">+ Add File</button>
+      <label class="nav-cta" style="cursor:pointer;">Upload from computer
+        <input type="file" id="projUploadInput" multiple style="display:none;" onchange="uploadProjectFilesUI(this)">
       </label>
-      <select id="joinCodeRoleSelect" onchange="saveJoinCodeSettingsUI()" style="max-width:200px;">
-        <option value="viewer">Grants: Viewer</option>
-        <option value="contributor">Grants: Contributor</option>
-        <option value="editor">Grants: Editor</option>
-      </select>
     </div>
   </div>
 
-  <div class="shortcut-category-label">Change Requests</div>
-  <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Everything a Contributor edits lands here first — nothing touches the real file until you approve it.</p>
-  <div id="changeRequestsList" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;"></div>
+  <!-- ===== Versions ===== -->
+  <div class="proj-panel" id="projPanel-versions">
+    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Snapshots of every file at a point in time. Cutting a new version never overwrites an old one — you can always roll back.</p>
+    <div id="versionsList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+    <div class="friend-add-row" id="cutVersionRow">
+      <input type="text" id="versionNoteInput" placeholder="What changed in this version? (e.g. rewrote the auth flow)">
+      <button class="nav-cta btn-golden" onclick="cutVersionUI()">+ Cut New Version</button>
+    </div>
+  </div>
 
-  <div class="shortcut-category-label">Deployment</div>
-  <p style="font-size:.82rem; color:var(--text-secondary); max-width:640px; margin-bottom:10px;">
-    Knight can't actually push your code to a live host from inside the browser — going live for real needs
-    a hosting provider's account and API key (Render, Vercel, Netlify, etc.). What it can do is keep a record
-    of where you deployed it, so your team always has the current link.
-  </p>
-  <div class="friend-add-row">
-    <input type="url" id="deployedUrlInput" placeholder="https://your-deployed-project.onrender.com">
-    <button class="nav-cta" onclick="saveDeployedUrlUI()">Save Link</button>
+  <!-- ===== Contributors ===== -->
+  <div class="proj-panel" id="projPanel-contributors">
+    <div id="projectMembersList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
+    <div class="friend-add-row" id="inviteMemberRow">
+      <input type="text" id="newMemberSocialId" placeholder="Social ID (KNT-XXXXXX)">
+      <select id="newMemberRole" style="max-width:130px;">
+        <option value="viewer">Viewer — read only</option>
+        <option value="contributor">Contributor — proposes changes</option>
+        <option value="editor">Editor — edits directly</option>
+      </select>
+      <button class="nav-cta" onclick="addProjectMemberUI()">Invite</button>
+    </div>
+
+    <div class="shortcut-category-label" id="joinCodeSectionLabel" style="display:none; margin-top:22px;">Invite Passkey</div>
+    <div id="joinCodeSection" style="display:none; max-width:520px;">
+      <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Anyone with this passkey can join instantly as the role below — no Social ID needed. Regenerate any time to revoke old links.</p>
+      <div class="friend-add-row" style="margin-bottom:10px;">
+        <input type="text" id="joinCodeDisplay" readonly style="font-family:'JetBrains Mono',monospace; letter-spacing:.05em;">
+        <button class="nav-cta" onclick="copyJoinCodeUI()">Copy</button>
+        <button class="nav-cta" onclick="regenerateJoinCodeUI()">Regenerate</button>
+      </div>
+      <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+        <label style="font-size:.82rem; display:flex; align-items:center; gap:8px; color:var(--text-secondary); cursor:pointer;">
+          <input type="checkbox" id="joinCodeEnabledToggle" onchange="saveJoinCodeSettingsUI()"> Passkey active
+        </label>
+        <select id="joinCodeRoleSelect" onchange="saveJoinCodeSettingsUI()" style="max-width:200px;">
+          <option value="viewer">Grants: Viewer</option>
+          <option value="contributor">Grants: Contributor</option>
+          <option value="editor">Grants: Editor</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Changes ===== -->
+  <div class="proj-panel" id="projPanel-changes">
+    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Everything a Contributor edits lands here first — nothing touches the real file until you approve it.</p>
+    <div id="changeRequestsList" style="display:flex; flex-direction:column; gap:10px;"></div>
+  </div>
+
+  <!-- ===== Deploy ===== -->
+  <div class="proj-panel" id="projPanel-deploy">
+    <div id="projectDeployNote" class="cloud-note"></div>
+    <div class="deploy-actions" style="margin-bottom:14px;" id="projectDeployActionsRow"></div>
+    <div class="friend-add-row">
+      <input type="url" id="deployedUrlInput" placeholder="https://your-deployed-project.onrender.com">
+      <button class="nav-cta" onclick="saveDeployedUrlUI()">Save Link</button>
+    </div>
   </div>
 </div>
 
@@ -829,6 +872,32 @@
     <input type="text" id="socialFriendSearchInput" placeholder="Search your friends…" oninput="renderSocialFriendsList()">
   </div>
   <div id="socialFriendsListFull" style="display:flex; flex-direction:column; gap:10px; max-width:640px;"></div>
+
+  <!-- ===== Nearby Knights — live, precise proximity discovery ===== -->
+  <div class="shortcut-category-label" style="margin-top:28px;">Nearby Knights</div>
+  <p style="font-size:.8rem; color:var(--text-secondary); max-width:640px; margin-bottom:14px;">
+    Go live and Knight watches your precise location in real time. Anyone else nearby who's also live shows up here — cross a threshold and a "wanna be friends" prompt pops up automatically, the way AirDrop surfaces a nearby device.
+  </p>
+  <div class="nearby-toggle-row">
+    <button id="nearbyToggleBtn" class="nav-cta btn-golden" onclick="toggleNearbyLive()">Go Live</button>
+    <span id="nearbyStatusText" class="nearby-status-text">Off — your location isn't being shared.</span>
+  </div>
+  <div id="nearbyList" class="nearby-list"></div>
+</div>
+
+<!-- Pops up automatically, AirDrop-style, when a new Knight is detected nearby -->
+<div class="modal-overlay" id="nearbyPromptModal">
+  <div class="modal-content nearby-prompt">
+    <div class="nearby-prompt-avatar" id="nearbyPromptAvatar"></div>
+    <div class="nearby-prompt-radar"></div>
+    <h2 id="nearbyPromptTitle">You Wanna Be Friends With</h2>
+    <p id="nearbyPromptName" class="nearby-prompt-name"></p>
+    <p id="nearbyPromptDistance" class="nearby-prompt-distance"></p>
+    <div class="nearby-prompt-actions">
+      <button class="nav-cta" onclick="dismissNearbyPrompt()">Not Now</button>
+      <button class="submit-btn" onclick="acceptNearbyPrompt()">Add Friend</button>
+    </div>
+  </div>
 </div>
 
 <!-- ================= Settings ================= -->
@@ -968,9 +1037,10 @@
     <div class="page-back" onclick="closeKnightPage('linkDeployerPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
     <div class="page-title">Link Deployer</div>
   </div>
-  <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:20px; max-width:640px;">
-    Knight doesn't host your projects live — deploy them wherever you like (Render, Vercel, Netlify…) and save the real URL here so your team always finds it in one place.
+  <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:14px; max-width:640px;">
+    Deploy a project straight to a real link when Knight Cloud is connected, or build a portable .html and host it yourself anywhere — Render, Vercel, Netlify, GitHub Pages.
   </p>
+  <div id="linkDeployerCloudNote" class="cloud-note"></div>
   <div class="deploy-steps">
     <div class="deploy-step"><span>1</span><div><b>Build</b><p>Knight bundles your project's files into one self-contained .html you can open anywhere.</p></div></div>
     <div class="deploy-step"><span>2</span><div><b>Upload</b><p>Drop that file on a host — Netlify Drop, Vercel, GitHub Pages, Cloudflare Pages. No account key needed for Netlify Drop.</p></div></div>
@@ -993,25 +1063,35 @@
     <span id="buildBannerText">Building…</span>
   </div>
 
-  <div class="preview-toolbar">
-    <select id="previewEntrySelect" onchange="runPreview()" title="Entry file"></select>
-    <button class="nav-cta" onclick="runPreview()">⟳ Reload</button>
-    <button class="nav-cta" onclick="openPreviewInTab()">Open in new tab</button>
-    <label class="preview-check"><input type="checkbox" id="previewAutoReload" checked> Auto-reload on save</label>
-    <div class="preview-sizes">
-      <button class="nav-cta" onclick="setPreviewWidth('100%')">Desktop</button>
-      <button class="nav-cta" onclick="setPreviewWidth('768px')">Tablet</button>
-      <button class="nav-cta" onclick="setPreviewWidth('390px')">Phone</button>
+  <div class="preview-layout">
+    <div class="preview-sidebar">
+      <div class="preview-sidebar-label">Recent Builds</div>
+      <div id="previewSidebarList" class="preview-sidebar-list"></div>
+    </div>
+
+    <div class="preview-main">
+      <div class="preview-toolbar">
+        <select id="previewEntrySelect" onchange="runPreview()" title="Entry file"></select>
+        <button class="nav-cta" onclick="runPreview()">⟳ Reload</button>
+        <button class="nav-cta" onclick="openPreviewInTab()">Open in new tab</button>
+        <button class="nav-cta btn-golden" onclick="deployProjectToCloudUI(server.projectId)">☁ Deploy</button>
+        <label class="preview-check"><input type="checkbox" id="previewAutoReload" checked> Auto-reload on save</label>
+        <div class="preview-sizes">
+          <button class="nav-cta" onclick="setPreviewWidth('100%')">Desktop</button>
+          <button class="nav-cta" onclick="setPreviewWidth('768px')">Tablet</button>
+          <button class="nav-cta" onclick="setPreviewWidth('390px')">Phone</button>
+        </div>
+      </div>
+
+      <div class="preview-stage">
+        <iframe id="previewFrame" title="Project preview"
+          sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
+      </div>
+
+      <div class="shortcut-category-label">Console</div>
+      <pre id="previewConsole" class="preview-console">Waiting for the server…</pre>
     </div>
   </div>
-
-  <div class="preview-stage">
-    <iframe id="previewFrame" title="Project preview"
-      sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
-  </div>
-
-  <div class="shortcut-category-label">Console</div>
-  <pre id="previewConsole" class="preview-console">Waiting for the server…</pre>
 </div>
 
 <!-- ================= 404 — route not found ================= -->

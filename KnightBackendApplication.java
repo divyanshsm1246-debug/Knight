@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -354,6 +355,54 @@ class ProjectVersion {
     public Map<String, String> getSnapshot() { return snapshot; }
 }
 
+/* -------------------------------------------------------------------------
+   DEPLOYMENT
+   This is what makes a real, sharable "knight-yourapp.onrender.com/website/xxxx"
+   link work: the built page is stored in the database, keyed by a slug, and
+   served back by a PUBLIC controller below — no auth, no CORS restriction,
+   because a deployed site has to be openable by anyone with the link, not
+   just the person who built it.
+   ------------------------------------------------------------------------- */
+@Entity
+@Table(name = "deployed_sites", indexes = @Index(columnList = "slug", unique = true))
+class DeployedSite {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true, length = 40)
+    private String slug;
+
+    @Column(nullable = false)
+    private Long projectId;
+
+    @Lob
+    @Column(nullable = false, length = 3000000)   // up to ~3MB of built HTML
+    private String html;
+
+    private Integer deployCount = 1;
+    private Instant deployedAt = Instant.now();
+    private Instant updatedAt = Instant.now();
+
+    public DeployedSite() {}
+
+    public DeployedSite(String slug, Long projectId, String html) {
+        this.slug = slug;
+        this.projectId = projectId;
+        this.html = html;
+    }
+
+    public Long getId() { return id; }
+    public String getSlug() { return slug; }
+    public Long getProjectId() { return projectId; }
+    public String getHtml() { return html; }
+    public void setHtml(String v) { this.html = v; this.updatedAt = Instant.now(); }
+    public Integer getDeployCount() { return deployCount; }
+    public void setDeployCount(Integer v) { this.deployCount = v; }
+    public Instant getDeployedAt() { return deployedAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+}
+
 @Entity
 @Table(name = "change_requests")
 class ChangeRequest {
@@ -475,6 +524,12 @@ class Notification {
 @Repository interface NotifRepo extends JpaRepository<Notification, Long> {
     List<Notification> findByUserIdOrderByCreatedAtDesc(Long userId);
     void deleteByUserId(Long userId);
+}
+
+@Repository interface DeployedSiteRepo extends JpaRepository<DeployedSite, Long> {
+    Optional<DeployedSite> findBySlug(String slug);
+    Optional<DeployedSite> findByProjectId(Long projectId);
+    void deleteByProjectId(Long projectId);
 }
 
 /* -------------------------------------------------------------------------
@@ -960,6 +1015,224 @@ class KnightController {
         return ResponseEntity.ok(Map.of("status", "up", "time", Instant.now().toString()));
     }
 }
+
+/* -------------------------------------------------------------------------
+   DEPLOYMENT
+   Everything above this point requires auth and lives under /api. This
+   controller has one public route on purpose: a deployed site has to open
+   for anyone with the link, the same way a real Render/Vercel URL does.
+
+   Once this backend is deployed (say to Render), hitting Deploy in Knight
+   gives back a URL like:
+
+       https://your-app-name.onrender.com/website/my-site-3k9f
+
+   That link is real: it is this server, still running, handing back the
+   stored HTML on every request — not a mock and not a redirect.
+   ------------------------------------------------------------------------- */
+@RestController
+class DeployController {
+    private final AuthService auth;
+    private final ProjectService svc;
+    private final DeployedSiteRepo sites;
+    private final SecureRandom random = new SecureRandom();
+
+    DeployController(AuthService auth, ProjectService svc, DeployedSiteRepo sites) {
+        this.auth = auth; this.svc = svc; this.sites = sites;
+    }
+
+    private String slugFor(Project p) {
+        String base = p.getName().toLowerCase().trim()
+                .replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+        if (base.isBlank()) base = "site";
+        if (base.length() > 24) base = base.substring(0, 24);
+        return base + "-" + Long.toString(p.getId(), 36) + "-" + Long.toString(Math.abs(random.nextLong()) % 1296, 36);
+    }
+
+    @PostMapping("/api/projects/{id}/deploy")
+    ResponseEntity<Map<String, Object>> deploy(@RequestHeader(value = "Authorization", required = false) String h,
+                                               @PathVariable Long id,
+                                               @RequestBody DeployRequest req) {
+        KnightUser u = auth.requireUser(h);
+        Project p = svc.projects().findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Project not found."));
+        if (!svc.canEditDirectly(p, u))
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only owners and editors can deploy.");
+        if (req.html == null || req.html.isBlank())
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Nothing was built to deploy — send the bundled HTML.");
+        if (req.html.length() > 3_000_000)
+            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "Built site is over the 3 MB deploy limit.");
+
+        DeployedSite site = sites.findByProjectId(id).orElse(null);
+        if (site == null) {
+            site = new DeployedSite(slugFor(p), id, req.html);
+            sites.save(site);
+        } else {
+            site.setHtml(req.html);
+            site.setDeployCount(site.getDeployCount() + 1);
+            sites.save(site);
+        }
+
+        String url = deployedUrlFor(site.getSlug());
+        p.setDeployedUrl(url);
+        svc.projects().save(p);
+
+        return ResponseEntity.ok(Map.of(
+                "slug", site.getSlug(), "url", url,
+                "deployCount", site.getDeployCount(), "deployedAt", site.getDeployedAt().toString()));
+    }
+
+    @GetMapping("/api/projects/{id}/deployment")
+    ResponseEntity<Map<String, Object>> current(@RequestHeader(value = "Authorization", required = false) String h,
+                                                @PathVariable Long id) {
+        auth.requireUser(h);
+        return sites.findByProjectId(id)
+                .map(s -> ResponseEntity.ok(Map.<String, Object>of(
+                        "slug", s.getSlug(), "url", deployedUrlFor(s.getSlug()),
+                        "deployCount", s.getDeployCount(), "updatedAt", s.getUpdatedAt().toString())))
+                .orElseGet(() -> ResponseEntity.ok(Map.of("deployed", false)));
+    }
+
+    @DeleteMapping("/api/projects/{id}/deploy")
+    ResponseEntity<Map<String, String>> undeploy(@RequestHeader(value = "Authorization", required = false) String h,
+                                                 @PathVariable Long id) {
+        KnightUser u = auth.requireUser(h);
+        Project p = svc.projects().findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Project not found."));
+        if (!svc.canEditDirectly(p, u))
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only owners and editors can undeploy.");
+        sites.deleteByProjectId(id);
+        p.setDeployedUrl("");
+        svc.projects().save(p);
+        return ResponseEntity.ok(Map.of("status", "undeployed"));
+    }
+
+    /** The actual live site. No auth header, no JSON — a real page for a real browser tab. */
+    @GetMapping(value = "/website/{slug}", produces = "text/html;charset=UTF-8")
+    ResponseEntity<String> serve(@PathVariable String slug) {
+        DeployedSite site = sites.findBySlug(slug).orElse(null);
+        if (site == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                "<!doctype html><html><body style='font-family:monospace;background:#100f11;color:#e8e6e3;"
+                + "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;'>"
+                + "<div><h1>404</h1><p>No Knight site is deployed at this link.</p></div></body></html>");
+        }
+        return ResponseEntity.ok(site.getHtml());
+    }
+
+    private String deployedUrlFor(String slug) {
+        // Built relative to this same server's own address, whatever host it ends up on
+        // (localhost while developing, yourapp.onrender.com once deployed).
+        ServletUriComponentsBuilder b = ServletUriComponentsBuilder.fromCurrentContextPath();
+        return b.path("/website/").path(slug).toUriString();
+    }
+}
+
+class DeployRequest { public String html; }
+
+/* -------------------------------------------------------------------------
+   PRESENCE — "Nearby Knights"
+   A person opts in ("Go Live"), the browser reports its own precise location
+   on a timer, and anyone else live within range shows up here. This is the
+   only way two different phones/browsers can discover each other — it needs
+   this server in the loop, unlike the rest of Knight.
+   ------------------------------------------------------------------------- */
+@Entity
+@Table(name = "presence")
+class Presence {
+    @Id
+    private Long userId;      // one row per user — a new report overwrites the old one
+
+    private double lat;
+    private double lng;
+    private Double accuracyMeters;
+    private Instant updatedAt = Instant.now();
+
+    public Presence() {}
+
+    public Presence(Long userId, double lat, double lng, Double accuracyMeters) {
+        this.userId = userId; this.lat = lat; this.lng = lng; this.accuracyMeters = accuracyMeters;
+    }
+
+    public Long getUserId() { return userId; }
+    public double getLat() { return lat; }
+    public void setLat(double v) { this.lat = v; }
+    public double getLng() { return lng; }
+    public void setLng(double v) { this.lng = v; }
+    public Double getAccuracyMeters() { return accuracyMeters; }
+    public void setAccuracyMeters(Double v) { this.accuracyMeters = v; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant v) { this.updatedAt = v; }
+}
+
+@Repository interface PresenceRepo extends JpaRepository<Presence, Long> {
+    List<Presence> findByUpdatedAtAfter(Instant cutoff);
+}
+
+@RestController
+@RequestMapping("/api/presence")
+class PresenceController {
+    private final AuthService auth;
+    private final PresenceRepo presence;
+    private final UserRepo users;
+
+    /** Someone not still reporting every ~10s for two minutes is treated as gone. */
+    private static final long STALE_SECONDS = 120;
+    private static final double EARTH_RADIUS_M = 6371000;
+
+    PresenceController(AuthService auth, PresenceRepo presence, UserRepo users) {
+        this.auth = auth; this.presence = presence; this.users = users;
+    }
+
+    private double haversineMeters(double lat1, double lng1, double lat2, double lng2) {
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                 * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    @PostMapping
+    ResponseEntity<Map<String, String>> report(@RequestHeader(value = "Authorization", required = false) String h,
+                                               @RequestBody PresenceRequest req) {
+        KnightUser u = auth.requireUser(h);
+        if (req.lat == null || req.lng == null)
+            throw new ApiException(HttpStatus.BAD_REQUEST, "lat/lng required.");
+        Presence p = presence.findById(u.getId()).orElse(new Presence(u.getId(), req.lat, req.lng, req.accuracy));
+        p.setLat(req.lat); p.setLng(req.lng); p.setAccuracyMeters(req.accuracy); p.setUpdatedAt(Instant.now());
+        presence.save(p);
+        return ResponseEntity.ok(Map.of("status", "live"));
+    }
+
+    @DeleteMapping
+    ResponseEntity<Map<String, String>> goOffline(@RequestHeader(value = "Authorization", required = false) String h) {
+        KnightUser u = auth.requireUser(h);
+        presence.deleteById(u.getId());
+        return ResponseEntity.ok(Map.of("status", "offline"));
+    }
+
+    @GetMapping("/nearby")
+    ResponseEntity<List<Map<String, Object>>> nearby(@RequestHeader(value = "Authorization", required = false) String h,
+                                                      @RequestParam double lat, @RequestParam double lng,
+                                                      @RequestParam(defaultValue = "300") double radiusMeters) {
+        KnightUser me = auth.requireUser(h);
+        Instant cutoff = Instant.now().minusSeconds(STALE_SECONDS);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Presence p : presence.findByUpdatedAtAfter(cutoff)) {
+            if (p.getUserId().equals(me.getId())) continue;
+            double dist = haversineMeters(lat, lng, p.getLat(), p.getLng());
+            if (dist > radiusMeters) continue;
+            users.findById(p.getUserId()).ifPresent(u -> out.add(Map.of(
+                    "socialId", u.getSocialId(), "username", u.getUsername(),
+                    "distanceMeters", Math.round(dist), "updatedAt", p.getUpdatedAt().toString())));
+        }
+        out.sort((a, b) -> ((Long) a.get("distanceMeters")).compareTo((Long) b.get("distanceMeters")));
+        return ResponseEntity.ok(out);
+    }
+}
+
+class PresenceRequest { public Double lat, lng, accuracy; }
 
 /* -------------------------------------------------------------------------
    ERROR HANDLING
