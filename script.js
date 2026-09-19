@@ -596,14 +596,11 @@ const ROUTES = {
   'studio':    { page: 'studioPage',        title: 'Studio' },
   'comm':      { page: 'commPage',          title: 'Communication' },
   'social':    { page: 'socialPage',        title: 'Social' },
-  'notes':     { page: 'notesPage',         title: 'Notes' },
+  'notes':     { page: 'notesPage',         title: 'Data-Base' },
   'arcade':    { page: 'arcadePage',        title: 'Arcade' },
   'booster':   { page: 'gameBoosterPage',   title: 'Game Booster' },
   'deploy':    { page: 'linkDeployerPage',  title: 'Link Deployer' },
-  'guide':     { page: 'guidePage',         title: 'Guide' },
   'settings':  { page: 'settingsPage',      title: 'Settings' },
-  'shortcuts': { page: 'shortcutPage',      title: 'Shortcuts' },
-  'admin':     { page: 'adminPage',         title: 'Admin' },
 };
 
 const PAGE_TO_ROUTE = Object.fromEntries(
@@ -649,8 +646,6 @@ function handleRoute() {
     openProjectDetail(id, true);
     return;
   }
-
-  if (routeName === 'admin' && !me().admin) { show404('/admin'); return; }
 
   openKnightPage(route.page, true);
 }
@@ -701,10 +696,11 @@ function openKnightPage(pageId, fromRouter = false) {
     arcadePage:       startMemoryGame,
     gameBoosterPage:  renderGameBooster,
     linkDeployerPage: renderLinkDeployer,
-    shortcutPage:     renderShortcuts,
     settingsPage:     renderSettings,
-    adminPage:        renderAdmin,
+    terminalPage:     () => renderTermFileList(DB.data().projects[terminalProjectId]),
   }[pageId] || (() => {}))();
+
+  if (pageId !== 'terminalPage') stopTermFps();
 }
 
 function closeKnightPage(pageId) {
@@ -748,7 +744,6 @@ function enterApp(user, { fresh = false } = {}) {
   renderNotifBadge();
   renderPasskeys();
   applyPrefsToUI();
-  $('adminCard').style.display = user.admin ? 'block' : 'none';
 
   // Try the server for a fresher profile — but never block on it.
   refreshProfileFromServer();
@@ -1455,7 +1450,8 @@ function projectCard(p, showRole) {
   const fileCount = Object.keys(p.files || {}).length;
   const ver = (p.versions || []).length;
   const owner = userById(p.ownerId);
-  return `<div class="dash-card theme-blue" tabindex="0" onclick="openProjectBuild('${p.id}')">
+  const hasHtml = Object.keys(p.files || {}).some(n => ['html', 'htm'].includes(extOf(n)));
+  return `<div class="dash-card theme-blue" tabindex="0" onclick="openProjectDetail('${p.id}')">
     <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
     <h3>${esc(p.name)}</h3>
     <p>${esc(p.description || 'No description.')}</p>
@@ -1465,7 +1461,10 @@ function projectCard(p, showRole) {
       ${showRole && role ? `<span class="social-id-chip" style="font-size:.62rem;">${esc(role)}</span>` : ''}
       ${!showRole && owner ? `<span class="social-id-chip" style="font-size:.62rem;">by ${esc(owner.username)}</span>` : ''}
     </div>
-    <div class="enter-btn">★ ${p.stars || 0} · ${fileCount} files · v${ver}</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+      <div class="enter-btn" style="margin:0;">★ ${p.stars || 0} · ${fileCount} files · v${ver}</div>
+      ${hasHtml ? `<button class="nav-cta btn-golden" style="font-size:.68rem;padding:5px 10px;flex-shrink:0;" onclick="event.stopPropagation(); openProjectBuild('${p.id}')">▶ Preview</button>` : ''}
+    </div>
   </div>`;
 }
 
@@ -1513,6 +1512,16 @@ function openProjectDetail(id, fromRouter = false) {
   if (hint) hint.textContent = hasHtml
     ? 'Detected a website — Run Website starts the local server.'
     : 'No .html yet. Upload one, or send a code file to the Terminal.';
+
+  const forkNote = $('projectForkedFromNote');
+  if (forkNote) {
+    if (p.forkedFrom) {
+      forkNote.style.display = 'block';
+      forkNote.innerHTML = 'Forked from <b>' + esc(p.forkedFrom.name) + '</b>.';
+    } else {
+      forkNote.style.display = 'none';
+    }
+  }
 
   renderProjectFiles(p, role);
   renderVersions(p, isOwner);
@@ -1715,6 +1724,7 @@ function renderVersions(p, canManage) {
           <div class="version-meta">${timeAgo(v.at)} · ${Object.keys(v.snapshot || {}).length} files</div>
         </div>
         ${canManage && i !== 0 ? `<button class="nav-cta" onclick="restoreVersion('${v.id}')">Restore</button>` : ''}
+        <button class="nav-cta" onclick="openVersionDiffUI('${v.id}')">Compare</button>
       </div>
       <p class="version-note">${esc(v.note || 'No description given.')}</p>
       ${changed.length ? `<div class="version-changed">${changed.slice(0, 6).map(c =>
@@ -2016,8 +2026,9 @@ function pickStudioCategory(c) { studioCategory = c; renderStudio(); }
 function studioCard(p) {
   const owner = userById(p.ownerId);
   const starred = (p.starredBy || []).includes(myId());
+  const hasHtml = Object.keys(p.files || {}).some(n => ['html', 'htm'].includes(extOf(n)));
   return `<div class="dash-card theme-blue studio-card" tabindex="0">
-    <div onclick="openProjectBuild('${p.id}')">
+    <div onclick="openProjectDetail('${p.id}')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M12 2 20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z"/></svg></div>
       <h3>${esc(p.name)}</h3>
       <p>${esc(p.description || 'No description.')}</p>
@@ -2027,23 +2038,47 @@ function studioCard(p) {
         ${p.locationLabel ? `<span class="social-id-chip" style="font-size:.62rem;">📍 ${esc(p.locationLabel)}</span>` : ''}
       </div>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-      <button class="star-toggle ${starred ? 'starred' : ''}" onclick="event.stopPropagation(); toggleStar('${p.id}')">★ ${p.stars || 0}</button>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+      <button class="star-toggle ${starred ? 'starred' : ''}" onclick="event.stopPropagation(); toggleStar('${p.id}', event)">★ ${p.stars || 0}</button>
       <button class="nav-cta" style="font-size:.72rem;padding:6px 10px;" onclick="event.stopPropagation(); openReviewPrompt('${p.id}')">Review (${(p.reviews || []).length})</button>
+      ${hasHtml ? `<button class="nav-cta btn-golden" style="font-size:.72rem;padding:6px 10px;" onclick="event.stopPropagation(); openProjectBuild('${p.id}')">▶ Preview</button>` : ''}
     </div>
   </div>`;
 }
 
-function toggleStar(pid) {
+function toggleStar(pid, evt) {
   const d = DB.data();
   const p = d.projects[pid];
   if (!p) return;
   p.starredBy = p.starredBy || [];
   const i = p.starredBy.indexOf(myId());
-  if (i === -1) { p.starredBy.push(myId()); p.stars = (p.stars || 0) + 1; }
+  let justStarred = false;
+  if (i === -1) { p.starredBy.push(myId()); p.stars = (p.stars || 0) + 1; justStarred = true; }
   else { p.starredBy.splice(i, 1); p.stars = Math.max(0, (p.stars || 0) - 1); }
   DB.saveData(d);
+
+  if (justStarred && evt && evt.currentTarget) spawnStarBurst(evt.currentTarget);
   renderStudio();
+}
+
+/** A quick burst of little stars radiating from the button, purely for feel. */
+function spawnStarBurst(el) {
+  const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const layer = document.createElement('div');
+  layer.className = 'star-burst-layer';
+  for (let i = 0; i < 6; i++) {
+    const s = document.createElement('span');
+    s.className = 'star-burst-particle';
+    const angle = (i / 6) * Math.PI * 2;
+    s.style.left = cx + 'px'; s.style.top = cy + 'px';
+    s.style.setProperty('--dx', Math.cos(angle) * 34 + 'px');
+    s.style.setProperty('--dy', Math.sin(angle) * 34 + 'px');
+    s.textContent = '★';
+    layer.appendChild(s);
+  }
+  document.body.appendChild(layer);
+  setTimeout(() => layer.remove(), 650);
 }
 
 function openReviewPrompt(pid) {
@@ -2077,6 +2112,123 @@ function startVoiceSearchUI() {
 }
 
 /* ---------------------------------------------------------------------------
+   14.5 WEBSOCKET CLIENT — real multiplayer chat and live collaboration
+   Talks to websocket-server.js (a separate Node process — see that file).
+   Same two-tier pattern as everything else that reaches outside the browser:
+   if WS_BASE isn't set or the socket can't connect, everything falls back to
+   the local-storage chat/messages that already work across tabs on one
+   device. When it IS connected, messages are real-time between different
+   people on different devices.
+--------------------------------------------------------------------------- */
+
+// Point this at your deployed websocket-server.js, e.g. "wss://knight-ws.onrender.com".
+// Leave null to stay in local/offline mode.
+const WS_BASE = null;
+const WS_SERVER_KEY = 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';   // must match SERVER_KEY there
+
+let socket = null;
+let socketRoom = null;
+let socketReconnectTimer = null;
+
+function socketReady() {
+  return !!(socket && socket.readyState === (window.WebSocket ? WebSocket.OPEN : 1));
+}
+
+function connectKnightSocket() {
+  if (!WS_BASE || !me() || typeof WebSocket === 'undefined') return null;
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return socket;
+
+  try {
+    const url = WS_BASE + '/ws/knight?key=' + encodeURIComponent(WS_SERVER_KEY)
+      + '&userId=' + encodeURIComponent(myId()) + '&username=' + encodeURIComponent(me().username);
+    socket = new WebSocket(url);
+  } catch (e) {
+    console.warn('[Knight] could not open websocket', e);
+    return null;
+  }
+
+  socket.onopen = () => { if (socketRoom) socket.send(JSON.stringify({ type: 'join', room: socketRoom })); paintCommServerPill(); };
+  socket.onmessage = (evt) => { let msg; try { msg = JSON.parse(evt.data); } catch { return; } handleSocketMessage(msg); };
+  socket.onclose = () => {
+    socket = null; paintCommServerPill();
+    clearTimeout(socketReconnectTimer);
+    socketReconnectTimer = setTimeout(connectKnightSocket, 4000);
+  };
+  socket.onerror = () => {};
+  return socket;
+}
+
+/** Switch which room (a DM thread key, or "project:<id>") this connection is
+    listening to. Only one room per connection, same as the Node server. */
+function joinSocketRoom(room) {
+  socketRoom = room;
+  const s = connectKnightSocket();
+  if (s && s.readyState === WebSocket.OPEN) s.send(JSON.stringify({ type: 'join', room }));
+}
+
+function paintCommServerPill() {
+  const pill = $('commServerPill');
+  if (!pill) return;
+  const live = socketReady();
+  pill.textContent = live ? 'live — real-time' : (WS_BASE ? 'connecting…' : 'offline (device-only)');
+  pill.classList.toggle('is-on', live);
+}
+
+function handleSocketMessage(msg) {
+  if (!msg || !msg.type) return;
+
+  if (msg.type === 'history') {
+    // Merge remote history into local storage without duplicating what we already have.
+    const d = DB.data();
+    d.messages[msg.room] = d.messages[msg.room] || [];
+    const haveAt = new Set(d.messages[msg.room].map(m => m.from + '|' + m.at));
+    (msg.messages || []).forEach(m => {
+      const at = m.at;
+      if (!haveAt.has(m.from + '|' + at)) d.messages[msg.room].push({ id: uid('msg'), from: m.from, text: m.text, at });
+    });
+    d.messages[msg.room].sort((a, b) => a.at - b.at);
+    DB.saveData(d);
+    if (chatPeerId && threadKey(myId(), chatPeerId) === msg.room) renderThread();
+    return;
+  }
+
+  if (msg.type === 'chat') {
+    const d = DB.data();
+    d.messages[msg.room] = d.messages[msg.room] || [];
+    const dupe = d.messages[msg.room].some(m => m.from === msg.from && Math.abs(m.at - msg.at) < 500 && m.text === msg.text);
+    if (!dupe) d.messages[msg.room].push({ id: uid('msg'), from: msg.from, text: msg.text, at: msg.at });
+    DB.saveData(d);
+    if (chatPeerId && threadKey(myId(), chatPeerId) === msg.room) renderThread();
+    else if (msg.from !== myId()) pushNotification(myId(), 'New Message', msg.username + ': ' + msg.text.slice(0, 60), '#/comm/' + me().socialId);
+    return;
+  }
+
+  if (msg.type === 'presence') {
+    renderCommPage();
+    return;
+  }
+
+  if (msg.type === 'file-update') {
+    const p = DB.data().projects[currentProjectId];
+    if (p && p.backendId && msg.room === 'project:' + p.backendId) {
+      toast(msg.username + ' just edited ' + msg.filename + ' live.');
+    }
+    return;
+  }
+
+  if (msg.type === 'typing') {
+    const label = $('commThreadLabel');
+    if (label && chatPeerId && threadKey(myId(), chatPeerId) === msg.room) {
+      const original = label.dataset.base || label.textContent;
+      label.dataset.base = original;
+      label.textContent = msg.username + ' is typing…';
+      clearTimeout(label._typingTimer);
+      label._typingTimer = setTimeout(() => { label.textContent = label.dataset.base; }, 2000);
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
    15. CHAT
 --------------------------------------------------------------------------- */
 
@@ -2085,6 +2237,7 @@ let chatPeerId = null;
 function threadKey(a, b) { return [a, b].sort().join('::'); }
 
 function renderCommPage() {
+  paintCommServerPill();
   const friends = (me().friends || []).map(userById).filter(Boolean);
   $('commFriendsList').innerHTML = friends.length
     ? friends.map(f => `<div class="friend-row" style="cursor:pointer;" onclick="openChatWith('${f.id}')">
@@ -2101,6 +2254,7 @@ function openChatWith(userId) {
   openKnightPage('commPage');
   const u = userById(userId);
   $('commThreadLabel').textContent = u ? 'Chat with ' + u.username : 'Chat';
+  joinSocketRoom(threadKey(myId(), userId));
   renderThread();
 }
 
@@ -2124,39 +2278,126 @@ function sendChatMessageUI() {
   const input = $('commMessageInput');
   const text = (input.value || '').trim();
   if (!text) return;
-  const d = DB.data();
   const key = threadKey(myId(), chatPeerId);
-  d.messages[key] = d.messages[key] || [];
-  d.messages[key].push({ id: uid('msg'), from: myId(), to: chatPeerId, text, at: Date.now() });
-  DB.saveData(d);
+  const at = Date.now();
+
+  if (socketReady() && socketRoom === key) {
+    // Real multiplayer path: the server broadcasts it back to us too, which
+    // is what actually adds it to the thread — no local double-write.
+    socket.send(JSON.stringify({ type: 'chat', room: key, text }));
+  } else {
+    // Offline/local path — same as before, works across tabs on this device.
+    const d = DB.data();
+    d.messages[key] = d.messages[key] || [];
+    d.messages[key].push({ id: uid('msg'), from: myId(), to: chatPeerId, text, at });
+    DB.saveData(d);
+    renderThread();
+  }
   pushNotification(chatPeerId, 'New Message', me().username + ': ' + text.slice(0, 60), '#/comm/' + me().socialId);
   input.value = '';
-  renderThread();
 }
 
 /* ---------------------------------------------------------------------------
-   16. NOTES
+   16. DATA-BASE — notes & code snippets: searchable, tagged, pinnable
 --------------------------------------------------------------------------- */
 
-function renderNotes() {
-  const notes = DB.data().notes[myId()] || [];
-  $('notesGrid').innerHTML = notes.length
-    ? notes.map(n => `<div class="dash-card theme-neutral" style="cursor:default;">
-        <h3 contenteditable="true" onblur="updateNote('${n.id}','title',this.textContent)">${esc(n.title)}</h3>
-        <textarea onblur="updateNote('${n.id}','body',this.value)" style="width:100%;min-height:120px;background:rgba(0,0,0,.3);border:1px solid var(--panel-border);border-radius:10px;padding:10px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:.8rem;resize:vertical;">${esc(n.body)}</textarea>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-          <span style="font-size:.7rem;color:var(--text-tertiary);">${timeAgo(n.at)}</span>
-          <button class="nav-cta" style="color:var(--accent-coral);font-size:.72rem;padding:6px 10px;" onclick="deleteNote('${n.id}')">Delete</button>
-        </div></div>`).join('')
-    : `<p style="font-size:.9rem;color:var(--text-tertiary);">No notes yet.</p>`;
+const NOTE_LANGS = ['text', 'javascript', 'python', 'java', 'html', 'css', 'bash', 'json', 'sql'];
+
+function myNotes() { return DB.data().notes[myId()] || []; }
+
+function allNoteTags() {
+  const set = new Set();
+  myNotes().forEach(n => (n.tags || []).forEach(t => set.add(t)));
+  return Array.from(set).sort();
 }
 
-function createNoteUI() {
+let notesActiveTag = null;
+
+function renderNotesTagPills() {
+  const box = $('notesTagPills');
+  if (!box) return;
+  const tags = allNoteTags();
+  if (!tags.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="db-tag-pill ${notesActiveTag === null ? 'active' : ''}" onclick="setNotesTagFilter(null)">All</div>`
+    + tags.map(t => `<div class="db-tag-pill ${notesActiveTag === t ? 'active' : ''}" onclick="setNotesTagFilter('${esc(t)}')">${esc(t)}</div>`).join('');
+}
+
+function setNotesTagFilter(tag) { notesActiveTag = tag; renderNotes(); }
+
+function renderNotes() {
+  renderNotesTagPills();
+  const q = ($('notesSearchInput')?.value || '').toLowerCase();
+  const sort = $('notesSortSelect')?.value || 'recent';
+
+  let notes = myNotes().filter(n =>
+    (!q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || (n.tags || []).some(t => t.toLowerCase().includes(q)))
+    && (!notesActiveTag || (n.tags || []).includes(notesActiveTag))
+  );
+
+  if (sort === 'az') notes = notes.slice().sort((a, b) => a.title.localeCompare(b.title));
+  else if (sort === 'pinned') notes = notes.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.at - a.at);
+  else notes = notes.slice().sort((a, b) => b.at - a.at);
+
+  const count = $('notesCount');
+  if (count) count.textContent = notes.length + ' of ' + myNotes().length + (myNotes().length === 1 ? ' item' : ' items');
+
+  $('notesGrid').innerHTML = notes.length
+    ? notes.map(n => noteCard(n)).join('')
+    : `<p style="font-size:.9rem;color:var(--text-tertiary);">${myNotes().length ? 'Nothing matches that search.' : 'Nothing here yet — add a note or a code snippet.'}</p>`;
+}
+
+function noteCard(n) {
+  const isCode = n.type === 'code';
+  return `<div class="db-card ${n.pinned ? 'is-pinned' : ''}">
+    <div class="db-card-head">
+      <h3 contenteditable="true" onblur="updateNote('${n.id}','title',this.textContent)">${esc(n.title)}</h3>
+      <button class="db-pin-btn ${n.pinned ? 'active' : ''}" title="Pin" onclick="toggleNotePin('${n.id}')">
+        <svg viewBox="0 0 24 24" fill="${n.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8"><path d="M12 2 L14.5 8.5 L21 9.5 L16.5 14 L17.5 21 L12 17.5 L6.5 21 L7.5 14 L3 9.5 L9.5 8.5 Z"/></svg>
+      </button>
+    </div>
+    ${isCode ? `<select class="db-lang-select" onchange="updateNote('${n.id}','language',this.value)">
+        ${NOTE_LANGS.map(l => `<option value="${l}" ${n.language === l ? 'selected' : ''}>${l}</option>`).join('')}
+      </select>` : ''}
+    <textarea class="${isCode ? 'db-code-area' : 'db-note-area'}" spellcheck="false"
+      onblur="updateNote('${n.id}','body',this.value)">${esc(n.body)}</textarea>
+    <input type="text" class="db-tags-input" placeholder="tags, comma, separated" value="${esc((n.tags || []).join(', '))}"
+      onblur="updateNoteTags('${n.id}', this.value)">
+    <div class="db-card-foot">
+      <span class="db-card-time">${timeAgo(n.at)}</span>
+      <div style="display:flex; gap:6px;">
+        <button class="nav-cta" style="font-size:.7rem;padding:5px 9px;" onclick="duplicateNoteUI('${n.id}')">Duplicate</button>
+        <button class="nav-cta" style="color:var(--accent-coral);font-size:.7rem;padding:5px 9px;" onclick="deleteNote('${n.id}')">Delete</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function createNoteUI(type = 'note') {
   const d = DB.data();
   d.notes[myId()] = d.notes[myId()] || [];
-  d.notes[myId()].unshift({ id: uid('note'), title: 'Untitled note', body: '', at: Date.now() });
+  d.notes[myId()].unshift({
+    id: uid('note'),
+    title: type === 'code' ? 'Untitled snippet' : 'Untitled note',
+    body: '',
+    type,
+    language: type === 'code' ? 'javascript' : null,
+    tags: [],
+    pinned: false,
+    at: Date.now(),
+  });
   DB.saveData(d);
   renderNotes();
+}
+
+function duplicateNoteUI(id) {
+  const d = DB.data();
+  const list = d.notes[myId()] || [];
+  const n = list.find(x => x.id === id);
+  if (!n) return;
+  list.unshift({ ...n, id: uid('note'), title: n.title + ' (copy)', at: Date.now() });
+  DB.saveData(d);
+  renderNotes();
+  toast('Duplicated.');
 }
 
 function updateNote(id, field, value) {
@@ -2165,6 +2406,26 @@ function updateNote(id, field, value) {
   if (!n) return;
   n[field] = value; n.at = Date.now();
   DB.saveData(d);
+  if (field === 'title') renderNotesTagPills();   // keep tag pills in sync if search state changes
+}
+
+function updateNoteTags(id, raw) {
+  const d = DB.data();
+  const n = (d.notes[myId()] || []).find(x => x.id === id);
+  if (!n) return;
+  n.tags = raw.split(',').map(t => t.trim()).filter(Boolean);
+  n.at = Date.now();
+  DB.saveData(d);
+  renderNotes();
+}
+
+function toggleNotePin(id) {
+  const d = DB.data();
+  const n = (d.notes[myId()] || []).find(x => x.id === id);
+  if (!n) return;
+  n.pinned = !n.pinned;
+  DB.saveData(d);
+  renderNotes();
 }
 
 function deleteNote(id) {
@@ -2175,7 +2436,15 @@ function deleteNote(id) {
 }
 
 /* ---------------------------------------------------------------------------
-   17. TERMINAL (real execution via Piston)
+   17. TERMINAL (real execution via Piston) + MASTERING TERMINAL
+   -----------------------------------------------------------------------
+   "Mastering Terminal" turns the code runner into a real workstation for a
+   project: a file sidebar, a mini live preview of the website (from the real
+   deployed URL when there is one, otherwise a local bundle), a rolling
+   console of everything you've run, a live FPS readout for the preview, and
+   tools that work across a project's whole version history — diffing two
+   versions, forking someone else's project, and scanning every version for
+   detectable errors to find the cleanest one.
 --------------------------------------------------------------------------- */
 
 const PISTON_VERSIONS = {
@@ -2183,6 +2452,9 @@ const PISTON_VERSIONS = {
   java: '15.0.2', typescript: '5.0.3', go: '1.16.2', rust: '1.68.2',
   php: '8.2.3', ruby: '3.0.1', bash: '5.2.0',
 };
+
+let terminalProjectId = null;
+let termRunHistory = [];   // { at, lang, status: 'ok'|'error', preview }
 
 async function runCodeUI() {
   const lang = $('termLanguage').value;
@@ -2193,6 +2465,7 @@ async function runCodeUI() {
   out.textContent = 'Running…';
   btn.disabled = true;
 
+  let status = 'ok', text = '';
   try {
     const res = await fetch('https://emkc.org/api/v2/piston/execute', {
       method: 'POST',
@@ -2205,16 +2478,48 @@ async function runCodeUI() {
     });
     const data = await res.json();
     const r = data.run || {};
-    const text = (r.stdout || '') + (r.stderr || '');
-    out.textContent = text.trim() || '(no output)';
-    if (r.stderr && $('termAudioToggle').checked && DB.prefs().errorSound !== false) beep();
+    text = ((r.stdout || '') + (r.stderr || '')).trim() || '(no output)';
+    out.textContent = text;
+    if (r.stderr) {
+      status = 'error';
+      if ($('termAudioToggle').checked && DB.prefs().errorSound !== false) beep();
+    }
   } catch (e) {
-    out.textContent = 'Could not reach the execution service.\n' + e.message +
-      '\n\nThis needs internet access — it runs your code on a real remote runtime.';
+    status = 'error';
+    text = 'Could not reach the execution service.\n' + e.message
+      + '\n\nThis needs internet access — it runs your code on a real remote runtime.';
+    out.textContent = text;
     if ($('termAudioToggle').checked) beep();
   } finally {
     btn.disabled = false;
+    logTermRun(lang, status, text);
   }
+}
+
+function logTermRun(lang, status, text) {
+  termRunHistory.unshift({ at: Date.now(), lang, status, preview: text.slice(0, 140) });
+  termRunHistory = termRunHistory.slice(0, 25);
+  renderTermConsoleHistory();
+}
+
+function renderTermConsoleHistory() {
+  const box = $('termConsoleHistory');
+  if (!box) return;
+  box.innerHTML = termRunHistory.length
+    ? termRunHistory.map((r, i) => `<div class="term-history-row ${r.status === 'error' ? 'is-error' : ''}" onclick="restoreTermRun(${i})">
+        <span class="term-history-dot"></span>
+        <span class="term-history-lang">${esc(r.lang)}</span>
+        <span class="term-history-preview">${esc(r.preview.split('\n')[0] || '(no output)')}</span>
+        <span class="term-history-time">${timeAgo(r.at)}</span>
+      </div>`).join('')
+    : `<p style="font-size:.78rem;color:var(--text-tertiary);">Nothing run yet this session.</p>`;
+}
+
+function restoreTermRun(i) {
+  const r = termRunHistory[i];
+  if (!r) return;
+  $('termOutput').textContent = r.preview + (r.preview.length >= 140 ? '…' : '');
+  toast('Showing output from that run.');
 }
 
 function beep() {
@@ -2227,6 +2532,262 @@ function beep() {
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
     o.start(); o.stop(ctx.currentTime + 0.3);
   } catch {}
+}
+
+/* ----- Terminal file sidebar ---------------------------------------------- */
+
+function renderTermFileList(p) {
+  const box = $('termFileList');
+  const title = $('termPageTitle');
+  const pill = $('termServerPill');
+  if (!box) return;
+
+  if (!p) {
+    box.innerHTML = `<p style="font-size:.76rem;color:var(--text-tertiary);">No project loaded — open one with Send to Terminal.</p>`;
+    if (title) title.textContent = 'Terminal';
+    if (pill) pill.style.display = 'none';
+    return;
+  }
+
+  if (title) title.textContent = 'Terminal — ' + p.name;
+  if (pill) { pill.style.display = 'inline-block'; pill.textContent = Object.keys(p.files).length + ' files'; }
+
+  box.innerHTML = Object.keys(p.files).map(name => `
+    <div class="term-file-row" onclick="loadTermFile('${esc(name)}')">
+      <span class="term-file-icon">${LANG_BY_EXT[extOf(name)] ? '⌘' : (['html','htm'].includes(extOf(name)) ? '◇' : '·')}</span>
+      <span class="term-file-name">${esc(name)}</span>
+    </div>`).join('');
+}
+
+function loadTermFile(name) {
+  const p = DB.data().projects[terminalProjectId];
+  if (!p || p.files[name] === undefined) return;
+  $('termCodeInput').value = p.files[name];
+  if (LANG_BY_EXT[extOf(name)]) $('termLanguage').value = LANG_BY_EXT[extOf(name)];
+  toast(name + ' loaded.');
+}
+
+/* ----- mini live preview + FPS bar ----------------------------------------- */
+
+let termFpsHandle = null;
+
+function loadTermMiniPreview(p) {
+  const frame = $('termMiniFrame');
+  const hint = $('termMiniHint');
+  if (!frame) return;
+
+  const hasHtml = Object.keys(p.files || {}).some(n => ['html', 'htm'].includes(extOf(n)));
+
+  if (p.deployedUrl) {
+    // The project is live in the cloud — show the real thing, backend and all,
+    // instead of a local re-bundle that can't reach whatever server it talks to.
+    frame.src = p.deployedUrl;
+    hint.style.display = 'none';
+    startTermFps();
+    return;
+  }
+
+  if (hasHtml) {
+    const entry = Object.keys(p.files).find(n => n.toLowerCase() === 'index.html')
+               || Object.keys(p.files).find(n => ['html', 'htm'].includes(extOf(n)));
+    frame.removeAttribute('src');
+    frame.srcdoc = inlineProject(p, entry);
+    hint.style.display = 'none';
+    startTermFps();
+    return;
+  }
+
+  frame.removeAttribute('src'); frame.srcdoc = '';
+  hint.textContent = 'This project has no website to preview — it\'s pure code.';
+  hint.style.display = 'block';
+  stopTermFps();
+}
+
+function startTermFps() {
+  stopTermFps();
+  let frames = 0, last = performance.now();
+  function tick(now) {
+    frames++;
+    if (now - last >= 1000) {
+      const el = $('termFpsBar');
+      if (el) el.textContent = frames + ' fps';
+      frames = 0; last = now;
+    }
+    if ($('terminalPage') && $('terminalPage').classList.contains('active')) {
+      termFpsHandle = requestAnimationFrame(tick);
+    }
+  }
+  termFpsHandle = requestAnimationFrame(tick);
+}
+
+function stopTermFps() {
+  if (termFpsHandle) cancelAnimationFrame(termFpsHandle);
+  termFpsHandle = null;
+  const el = $('termFpsBar');
+  if (el) el.textContent = '-- fps';
+}
+
+/* ----- fork a project ------------------------------------------------------- */
+
+function forkProjectUI(projectId) {
+  if (!requireAuth()) return;
+  const d = DB.data();
+  const src = d.projects[projectId || currentProjectId];
+  if (!src) return;
+  if (!canSeeProject(src)) { toast('You cannot fork a project you cannot see.', true); return; }
+
+  const fork = {
+    ...structuredCloneSafe(src),
+    id: uid('prj'),
+    ownerId: myId(),
+    name: src.name + ' (fork)',
+    forkedFrom: { projectId: src.id, ownerId: src.ownerId, name: src.name },
+    members: [], changeRequests: [], starredBy: [], stars: 0, reviews: [],
+    deployedUrl: '', backendId: undefined,
+    joinCode: uid('key').toUpperCase().slice(0, 12), joinCodeEnabled: false,
+    versions: [{ id: uid('ver'), label: 'Version 1', note: 'Forked from ' + src.name, at: Date.now(), snapshot: structuredCloneSafe(src.files) }],
+    createdAt: Date.now(), updatedAt: Date.now(),
+  };
+  d.projects[fork.id] = fork;
+  DB.saveData(d);
+  toast('Forked as "' + fork.name + '".');
+  openProjectDetail(fork.id);
+}
+
+/* ----- compare two versions -------------------------------------------------- */
+
+function openVersionDiffUI(versionId, compareToId) {
+  const p = DB.data().projects[currentProjectId];
+  if (!p) return;
+  const v = p.versions.find(x => x.id === versionId);
+  const against = compareToId ? p.versions.find(x => x.id === compareToId)
+    : { label: 'Current files', snapshot: p.files };
+  if (!v || !against) return;
+
+  $('versionDiffTitle').textContent = v.label + ' vs ' + against.label;
+  const changed = diffFileNames(against.snapshot, v.snapshot);
+  $('versionDiffBody').innerHTML = changed.length
+    ? changed.map(c => `<div class="version-diff-row diff-${c.kind}">
+        <span class="diff-badge">${c.kind === 'added' ? '+ added' : c.kind === 'removed' ? '− removed' : '~ edited'}</span>
+        <span class="diff-filename">${esc(c.name)}</span>
+      </div>`).join('')
+    : `<p style="font-size:.82rem;color:var(--text-tertiary);">No file differences between these two.</p>`;
+  openModalRaw('versionDiffModal');
+}
+
+/* ----- error scanner: find the version with the fewest detectable issues --- */
+
+/** A real, if limited, static check: JS files are parsed with Function() to
+    catch syntax errors, and HTML files get a basic open/close tag balance
+    check. This can't catch runtime or logic bugs — no static scanner can —
+    but it does catch the most common thing that breaks a whole page. */
+function scanSnapshotForIssues(snapshot) {
+  const issues = [];
+  Object.entries(snapshot || {}).forEach(([name, content]) => {
+    const ext = extOf(name);
+    if (['js', 'mjs', 'jsx'].includes(ext)) {
+      try { new Function(content); }
+      catch (e) { issues.push({ file: name, message: 'JS syntax error: ' + e.message }); }
+    } else if (['html', 'htm'].includes(ext)) {
+      const opens = (content.match(/<([a-z][a-z0-9]*)\b[^>]*(?<!\/)>/gi) || [])
+        .filter(t => !/^<(br|img|input|hr|meta|link|source|col|area|base|embed|track|wbr)\b/i.test(t)).length;
+      const closes = (content.match(/<\/[a-z][a-z0-9]*>/gi) || []).length;
+      if (Math.abs(opens - closes) > 0) issues.push({ file: name, message: 'Possibly unbalanced HTML tags (' + opens + ' opened vs ' + closes + ' closed)' });
+    }
+  });
+  return issues;
+}
+
+function scanAllVersions(p) {
+  return (p.versions || []).map(v => ({
+    id: v.id, label: v.label, at: v.at,
+    issues: scanSnapshotForIssues(v.snapshot),
+  }));
+}
+
+function findCleanestVersion(p) {
+  const scanned = scanAllVersions(p);
+  if (!scanned.length) return null;
+  return scanned.slice().sort((a, b) => a.issues.length - b.issues.length || b.at - a.at)[0];
+}
+
+function scanVersionsForErrorsUI() {
+  const p = DB.data().projects[currentProjectId];
+  if (!p) return;
+  const scanned = scanAllVersions(p);
+  const cleanest = findCleanestVersion(p);
+  const box = $('versionScanResult');
+
+  box.innerHTML = `
+    <div class="version-scan-summary ${cleanest && cleanest.issues.length === 0 ? 'is-clean' : ''}">
+      ${cleanest
+        ? `Cleanest: <b>${esc(cleanest.label)}</b> — ${cleanest.issues.length} detectable issue${cleanest.issues.length === 1 ? '' : 's'}`
+        : 'No versions to scan yet.'}
+    </div>
+    ${scanned.map(v => `<div class="version-scan-row">
+        <span>${esc(v.label)}</span>
+        <span class="${v.issues.length ? 'has-issues' : 'no-issues'}">${v.issues.length ? v.issues.length + ' issue(s)' : 'clean'}</span>
+      </div>${v.issues.map(i => `<div class="version-scan-issue">${esc(i.file)}: ${esc(i.message)}</div>`).join('')}`).join('')}
+    <p style="font-size:.7rem;color:var(--text-tertiary);margin-top:8px;">Static check only — catches syntax and tag-balance problems, not runtime or logic errors.</p>`;
+  toast(cleanest ? 'Cleanest version: ' + cleanest.label : 'Nothing to scan.');
+}
+
+/* ----- GitHub public repo import -------------------------------------------- */
+
+async function openGithubImportUI() {
+  if (!requireAuth()) return;
+  $('githubImportStatus').textContent = '';
+  openModalRaw('githubImportModal');
+}
+
+async function importGithubRepoUI() {
+  const repo = ($('githubRepoInput').value || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '');
+  const branch = ($('githubBranchInput').value || '').trim();
+  const status = $('githubImportStatus');
+  if (!repo || !repo.includes('/')) { status.textContent = 'Enter a repo as owner/name.'; return; }
+
+  status.textContent = 'Looking up the repository…';
+  try {
+    let ref = branch;
+    if (!ref) {
+      const repoInfo = await fetch('https://api.github.com/repos/' + repo).then(r => r.ok ? r.json() : null);
+      if (!repoInfo) throw new Error('Repository not found or not public.');
+      ref = repoInfo.default_branch || 'main';
+    }
+
+    status.textContent = 'Fetching the file tree…';
+    const treeRes = await fetch('https://api.github.com/repos/' + repo + '/git/trees/' + ref + '?recursive=1');
+    if (!treeRes.ok) throw new Error('Could not read that branch (HTTP ' + treeRes.status + ').');
+    const tree = await treeRes.json();
+    const files = (tree.tree || []).filter(t => t.type === 'blob' && t.size && t.size < MAX_FILE_BYTES);
+
+    if (!files.length) throw new Error('No importable files found.');
+    if (files.length > 60) status.textContent = 'Large repo — importing the first 60 files…';
+
+    const picked = files.slice(0, 60);
+    const results = {};
+    for (let i = 0; i < picked.length; i++) {
+      const f = picked[i];
+      status.textContent = 'Downloading ' + (i + 1) + ' / ' + picked.length + ': ' + f.path;
+      const rawUrl = 'https://raw.githubusercontent.com/' + repo + '/' + ref + '/' + f.path;
+      try {
+        const content = isImage(f.path)
+          ? null   // skip binary content — keep the file listed, empty, rather than fail the whole import
+          : await fetch(rawUrl).then(r => r.ok ? r.text() : null);
+        results[f.path] = content ?? '';
+      } catch { results[f.path] = ''; }
+    }
+
+    pendingProjectFiles = results;
+    closeModal('githubImportModal');
+    $('newProjName').value = repo.split('/')[1] || repo;
+    $('newProjDesc').value = 'Imported from github.com/' + repo;
+    renderPendingFiles();
+    openModalRaw('newProjectModal');
+    toast('Imported ' + Object.keys(results).length + ' files from ' + repo + ' — review and hit Create.');
+  } catch (e) {
+    status.textContent = e.message || 'Import failed.';
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -2394,41 +2955,13 @@ function saveDeployUrlFor(pid) {
 }
 
 /* ---------------------------------------------------------------------------
-   20. SHORTCUTS + DEVICE MODES
+   20. DEVICE MODES
+   (Knight's real keyboard shortcuts still work — Alt+H/T/P/S/N/G, Ctrl+K,
+   Esc, Alt+U/A — see setupKeyboard() below. Only the documentation page
+   that listed them has been removed.)
 --------------------------------------------------------------------------- */
 
-const SHORTCUTS = [
-  { cat: 'Navigation', win: 'Alt + H', mac: '⌘ + H', desc: 'Return to the dashboard' },
-  { cat: 'Navigation', win: 'Alt + T', mac: '⌘ + T', desc: 'Open the Terminal' },
-  { cat: 'Navigation', win: 'Alt + P', mac: '⌘ + P', desc: 'Open Projects Manager' },
-  { cat: 'Navigation', win: 'Alt + S', mac: '⌘ + S', desc: 'Open Studio' },
-  { cat: 'Navigation', win: 'Alt + N', mac: '⌘ + N', desc: 'Open Notes' },
-  { cat: 'Navigation', win: 'Alt + G', mac: '⌘ + G', desc: 'Open Social & Friends' },
-  { cat: 'Tools',      win: 'Ctrl + K', mac: '⌘ + K', desc: 'Command palette' },
-  { cat: 'Tools',      win: 'Alt + B', mac: '⌘ + B', desc: 'Open Game Booster' },
-  { cat: 'Tools',      win: 'Alt + M', mac: '⌘ + M', desc: 'Open Communication' },
-  { cat: 'Modals',     win: 'Esc',     mac: 'Esc',   desc: 'Close any open modal or page' },
-  { cat: 'Modals',     win: 'Alt + U', mac: '⌘ + U', desc: 'Open your profile card' },
-  { cat: 'Modals',     win: 'Alt + A', mac: '⌘ + A', desc: 'Open system alerts' },
-];
-
 let shortcutOS = 'windows';
-
-function renderShortcuts() {
-  const q = ($('shortcutSearchInput')?.value || '').toLowerCase();
-  const list = SHORTCUTS.filter(s => s.desc.toLowerCase().includes(q) || s.cat.toLowerCase().includes(q));
-  $('shortcutCount').textContent = list.length + ' of ' + SHORTCUTS.length + ' shortcuts';
-
-  const byCat = {};
-  list.forEach(s => { (byCat[s.cat] = byCat[s.cat] || []).push(s); });
-
-  $('shortcutGrid').innerHTML = Object.entries(byCat).map(([cat, items]) =>
-    `<div class="shortcut-category-label" style="grid-column:1/-1;">${cat}</div>` +
-    items.map(s => `<div class="shortcut-card">
-      <div class="shortcut-keys">${shortcutOS === 'windows' ? s.win : s.mac}</div>
-      <div class="shortcut-desc">${s.desc}</div></div>`).join('')
-  ).join('');
-}
 
 const DEVICES = ['Laptop', 'Desktop', 'Smartphone', 'Tablet', 'Console', 'Handheld'];
 
@@ -2467,10 +3000,7 @@ function applyDevice(device) {
   if (!dpad.enabled) dpad.clear();
 
   shortcutOS = isMacPlatform() ? 'macos' : 'windows';
-  $$('.os-tab').forEach(t => t.classList.toggle('active', t.dataset.os === shortcutOS));
   $$('.device-card').forEach(c => c.classList.toggle('selected', c.dataset.device === device));
-
-  if ($('shortcutPage') && $('shortcutPage').classList.contains('active')) renderShortcuts();
 }
 
 function toggleControls(id, on) {
@@ -2541,11 +3071,10 @@ const CMDS = [
   { label: 'Studio',           hint: 'discover', run: () => openKnightPage('studioPage') },
   { label: 'Communication',    hint: 'chat',     run: () => openKnightPage('commPage') },
   { label: 'Social & Friends', hint: 'friends',  run: () => openKnightPage('socialPage') },
-  { label: 'Notes = Codes',    hint: 'notes',    run: () => openKnightPage('notesPage') },
+  { label: 'Data-Base',        hint: 'notes',    run: () => openKnightPage('notesPage') },
   { label: 'Arcade',           hint: 'game',     run: () => openKnightPage('arcadePage') },
   { label: 'Game Booster',     hint: 'perf',     run: () => openKnightPage('gameBoosterPage') },
   { label: 'Settings',         hint: 'prefs',    run: () => openKnightPage('settingsPage') },
-  { label: 'Shortcuts',        hint: 'keys',     run: () => openKnightPage('shortcutPage') },
   { label: 'My Profile',       hint: 'account',  run: () => openModal('profileModal') },
   { label: 'Sign Out',         hint: 'log out',  run: signOutUI },
 ];
@@ -2681,25 +3210,6 @@ function stopCameraPreviewUI() {
 /* ---------------------------------------------------------------------------
    23. ADMIN
 --------------------------------------------------------------------------- */
-
-function renderAdmin() {
-  if (!me() || !me().admin) { $('adminBody').innerHTML = '<p>Access denied.</p>'; return; }
-  const users = Object.values(DB.users());
-  const d = DB.data();
-  const projects = Object.values(d.projects);
-  $('adminBody').innerHTML = `
-    <div class="dash-grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));margin-bottom:20px;">
-      ${[['Accounts', users.length], ['Projects', projects.length],
-         ['Public projects', projects.filter(p => p.visibility === 'public').length],
-         ['Guest sessions', users.filter(u => u.guest).length]]
-        .map(([k, v]) => `<div class="dash-card theme-neutral" style="cursor:default;"><h3 style="font-size:.9rem;">${k}</h3><p style="font-size:1.4rem;color:var(--text-primary);">${v}</p></div>`).join('')}
-    </div>
-    <div class="shortcut-category-label">Accounts</div>
-    <div style="display:flex;flex-direction:column;gap:8px;max-width:720px;">
-      ${users.map(u => `<div class="friend-row"><div><b>${esc(u.username)}</b>
-        <div style="font-size:.74rem;color:var(--text-tertiary);">${esc(u.socialId)} · ${esc(u.email)} · joined ${timeAgo(u.createdAt)}${u.guest ? ' · guest' : ''}${u.admin ? ' · admin' : ''}</div></div></div>`).join('')}
-    </div>`;
-}
 
 /* ---------------------------------------------------------------------------
    24. KEYBOARD — only active when signed in
@@ -3221,26 +3731,22 @@ function sendProjectToTerminalUI() {
   const p = DB.data().projects[currentProjectId];
   if (!p) return;
 
-  const runnable = Object.keys(p.files).filter(n => LANG_BY_EXT[extOf(n)]);
-  if (!runnable.length) {
-    // A pure website belongs in the preview, not a language runtime.
-    const hasHtml = Object.keys(p.files).some(n => ['html', 'htm'].includes(extOf(n)));
-    toast(hasHtml ? 'This is a website — use Run Website instead.'
-                  : 'No runnable code file found (.js, .py, .java, .cpp…).', true);
-    if (hasHtml) runProjectUI();
-    return;
-  }
-
-  const file = runnable.length === 1
-    ? runnable[0]
-    : (prompt('Which file should the Terminal run?\n\n' + runnable.join('\n'), runnable[0]) || '').trim();
-  if (!file || !p.files[file]) return;
-
-  $('termLanguage').value = LANG_BY_EXT[extOf(file)];
-  $('termCodeInput').value = p.files[file];
-  $('termOutput').textContent = 'Loaded ' + file + ' from ' + p.name + '. Hit Run.';
+  terminalProjectId = p.id;
   openKnightPage('terminalPage');
-  toast(file + ' loaded into the Terminal.');
+  renderTermFileList(p);
+  loadTermMiniPreview(p);
+
+  const runnable = Object.keys(p.files).filter(n => LANG_BY_EXT[extOf(n)]);
+  if (runnable.length) {
+    const file = runnable.length === 1
+      ? runnable[0]
+      : (prompt('Which file should the editor open first?\n\n' + runnable.join('\n'), runnable[0]) || '').trim();
+    if (file && p.files[file] !== undefined) {
+      $('termLanguage').value = LANG_BY_EXT[extOf(file)];
+      $('termCodeInput').value = p.files[file];
+    }
+  }
+  toast(p.name + ' loaded into the Terminal.');
 }
 
 /* ----- export / deploy ----- */
@@ -3731,8 +4237,6 @@ function boot() {
   // Studio + shortcuts inputs
   $('studioSearchInput').oninput = renderStudio;
   $('studioSortSelect').onchange = renderStudio;
-  $('shortcutSearchInput').oninput = renderShortcuts;
-  $$('.os-tab').forEach(t => { t.onclick = () => { shortcutOS = t.dataset.os; $$('.os-tab').forEach(x => x.classList.remove('active')); t.classList.add('active'); renderShortcuts(); }; });
   $('cmdkInput').oninput = renderCmdk;
   $('commMessageInput').onkeydown = (e) => { if (e.key === 'Enter') sendChatMessageUI(); };
 
@@ -3834,7 +4338,7 @@ Object.assign(window, {
   reviewChange, saveDeployedUrlUI, attachLocationUI,
   setStudioTab, pickStudioCategory, toggleStar, openReviewPrompt, startVoiceSearchUI,
   openChatWith, sendChatMessageUI,
-  createNoteUI, updateNote, deleteNote,
+  createNoteUI, updateNote, deleteNote, setNotesTagFilter, toggleNotePin, duplicateNoteUI, updateNoteTags,
   runCodeUI, startMemoryGame, flipCard,
   addPasskeyUI, removePasskey,
   requestCameraAccessUI, saveCameraSettingsUI, stopCameraPreviewUI, resetLocalPrefsUI,
@@ -3848,5 +4352,7 @@ Object.assign(window, {
   toggleServer, runProjectUI, openPreview, runPreview, stopPreview,
   setPreviewWidth, openPreviewInTab, sendProjectToTerminalUI, exportProjectUI,
   openPreviewFor, saveDeployUrlFor, handleNewProjectFiles,
+  loadTermFile, restoreTermRun, forkProjectUI, openVersionDiffUI, scanVersionsForErrorsUI,
+  openGithubImportUI, importGithubRepoUI,
   setNotifFilter, markAllNotificationsRead, deleteNotification,
 });

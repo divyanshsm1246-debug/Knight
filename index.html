@@ -247,37 +247,16 @@
 
     <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('notesPage')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
-      <h3>Notes = Codes</h3>
-      <p>Private notes and code snippets, visible only to you.</p>
-      <div class="enter-btn">Open Notes <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
-    </div>
-
-    <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('guidePage')">
-      <div class="icon-box"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-      <h3>Guide</h3>
-      <p>How every page and shortcut in Knight actually works.</p>
-      <div class="enter-btn">Read Guide <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+      <h3>Data-Base</h3>
+      <p>Notes and code snippets, searchable and tagged — visible only to you.</p>
+      <div class="enter-btn">Open Data-Base <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
     <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('settingsPage')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></div>
-      <h3>Settings</h3>
-      <p>Device optimization, your default page on sign-in, and other preferences.</p>
+      <h3>Settings &amp; Guides</h3>
+      <p>Preferences, device optimization, storage — and how every page in Knight actually works.</p>
       <div class="enter-btn">Open Settings <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
-    </div>
-
-    <div class="dash-card theme-neutral" id="adminCard" style="display:none;" tabindex="0" onclick="openKnightPage('adminPage')">
-      <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M12 2 20 6.5 V17.5 L12 22 L4 17.5 V6.5 Z"/></svg></div>
-      <h3>Admin</h3>
-      <p>Site-wide activity and management, visible only to admin accounts.</p>
-      <div class="enter-btn">Open Admin <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
-    </div>
-
-    <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('shortcutPage')">
-      <div class="icon-box"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6.01" y2="8"/><line x1="10" y1="8" x2="10.01" y2="8"/><line x1="14" y1="8" x2="14.01" y2="8"/></svg></div>
-      <h3>Knight Shortcuts</h3>
-      <p>Every real keyboard shortcut built into this website — navigation, tools, and modal controls.</p>
-      <div class="enter-btn">Open Guide <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
   </div>
 </section>
@@ -419,7 +398,7 @@
     <div class="device-grid" id="deviceSelectionGrid">
     <div class="device-card" data-device="Laptop"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M1.5 19.5h21l-1.5 1.5H3z"/></svg><div style="font-weight:600;font-size:.9rem;">Laptop</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Alt-key shortcuts</div></div><div class="device-card" data-device="Desktop"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="2" y="4" width="20" height="13" rx="1.5"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><div style="font-weight:600;font-size:.9rem;">Desktop</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Full-width layout</div></div><div class="device-card" data-device="Smartphone"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="5" y="2" width="14" height="20" rx="2.5"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Smartphone</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Large touch targets</div></div><div class="device-card" data-device="Tablet"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-green)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Tablet</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Edge scroll controls</div></div><div class="device-card" data-device="Console"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#F3C623" stroke-width="1.8" style="margin-bottom:8px;"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="17" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/></svg><div style="font-weight:600;font-size:.9rem;">Console</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Arrow-key D-pad nav</div></div><div class="device-card" data-device="Handheld"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="6" width="18" height="12" rx="3"/><line x1="7" y1="12" x2="11" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><circle cx="15.5" cy="12.5" r="0.6" fill="currentColor"/><circle cx="17.5" cy="10.5" r="0.6" fill="currentColor"/></svg><div style="font-weight:600;font-size:.9rem;">Handheld</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">On-screen A / B keys</div></div>
     </div>
-    <button class="nav-cta" style="width:100%; margin-top:16px; text-align:center;" onclick="closeModal('deviceModal'); openKnightPage('shortcutPage');">View Knight Shortcuts &rarr;</button>
+    <button class="nav-cta" style="width:100%; margin-top:16px; text-align:center;" onclick="closeModal('deviceModal')">Done</button>
   </div>
 </div>
 
@@ -596,8 +575,10 @@
       <button class="nav-cta btn-golden" onclick="runProjectUI()">▶ Run Website</button>
       <button class="nav-cta" onclick="sendProjectToTerminalUI()">Send to Terminal</button>
       <button class="nav-cta" onclick="exportProjectUI()">Export single-file .html</button>
+      <button class="nav-cta" onclick="forkProjectUI()">⑂ Fork This Project</button>
       <span class="run-hint" id="projectRunHint"></span>
     </div>
+    <div id="projectForkedFromNote" class="cloud-note is-off" style="display:none; padding:10px 14px; font-size:.76rem;"></div>
 
     <div class="shortcut-category-label" style="margin-top:22px;">Recent Activity</div>
     <div id="projectActivityList" style="display:flex; flex-direction:column; gap:8px;"></div>
@@ -618,10 +599,21 @@
   <!-- ===== Versions ===== -->
   <div class="proj-panel" id="projPanel-versions">
     <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Snapshots of every file at a point in time. Cutting a new version never overwrites an old one — you can always roll back.</p>
+    <button class="nav-cta" style="margin-bottom:12px;" onclick="scanVersionsForErrorsUI()">🔍 Scan All Versions for Errors</button>
+    <div id="versionScanResult" class="version-scan-result"></div>
     <div id="versionsList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
     <div class="friend-add-row" id="cutVersionRow">
       <input type="text" id="versionNoteInput" placeholder="What changed in this version? (e.g. rewrote the auth flow)">
       <button class="nav-cta btn-golden" onclick="cutVersionUI()">+ Cut New Version</button>
+    </div>
+  </div>
+
+  <!-- Pops up to show a file-by-file diff between two versions -->
+  <div class="modal-overlay" id="versionDiffModal">
+    <div class="modal-content" style="max-width:640px;">
+      <svg class="close-modal" onclick="closeModal('versionDiffModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      <h2 id="versionDiffTitle" style="margin-bottom:14px;">Compare Versions</h2>
+      <div id="versionDiffBody" style="max-height:50vh; overflow-y:auto; display:flex; flex-direction:column; gap:10px;"></div>
     </div>
   </div>
 
@@ -680,33 +672,81 @@
 <div class="knight-page" id="terminalPage">
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('terminalPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Terminal</div>
+    <div class="page-title" id="termPageTitle">Terminal</div>
+    <span class="server-pill" id="termServerPill" style="display:none;">connected</span>
   </div>
   <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:16px;">
-    Real execution via the public Piston runtime (emkc.org) — this actually compiles and runs your code, it's not a mock.
+    Runs on the public Piston execution service (emkc.org) — real output, real errors, for eleven languages.
   </p>
-  <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; align-items:center;">
-    <select id="termLanguage" style="max-width:200px; padding:10px 14px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:10px; color:var(--text-primary);">
-      <option value="javascript">JavaScript (Node)</option>
-      <option value="python">Python</option>
-      <option value="c++">C++</option>
-      <option value="c">C</option>
-      <option value="java">Java</option>
-      <option value="typescript">TypeScript</option>
-      <option value="go">Go</option>
-      <option value="rust">Rust</option>
-      <option value="php">PHP</option>
-      <option value="ruby">Ruby</option>
-      <option value="bash">Bash</option>
-    </select>
-    <button class="nav-cta btn-golden" id="runCodeBtn" onclick="runCodeUI()">▶ Run</button>
-    <label style="font-size:.8rem; display:flex; align-items:center; gap:6px; color:var(--text-secondary);">
-      <input type="checkbox" id="termAudioToggle" checked> Error sound
-    </label>
+
+  <div class="term-layout">
+    <div class="term-sidebar">
+      <div class="preview-sidebar-label">Project Files</div>
+      <div id="termFileList" class="term-file-list"></div>
+
+      <div class="preview-sidebar-label" style="margin-top:18px;">Compile Source</div>
+      <button class="nav-cta" style="width:100%; margin-bottom:6px;" onclick="openGithubImportUI()">Import Public Repo</button>
+      <p style="font-size:.7rem; color:var(--text-tertiary); line-height:1.5;">Pull a public GitHub repository's files straight into a Knight project.</p>
+    </div>
+
+    <div class="term-main">
+      <div class="term-top-row">
+        <div class="term-mini-preview">
+          <div class="term-mini-preview-head">
+            <span>Live Preview</span>
+            <span id="termFpsBar" class="term-fps-bar" title="Live rendering FPS">-- fps</span>
+          </div>
+          <iframe id="termMiniFrame" class="term-mini-frame" title="Mini preview" sandbox="allow-scripts allow-forms allow-modals"></iframe>
+          <p id="termMiniHint" class="term-mini-hint">Open a project from Send to Terminal to preview it here.</p>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; align-items:center;">
+        <select id="termLanguage" style="max-width:200px; padding:10px 14px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:10px; color:var(--text-primary);">
+          <option value="javascript">JavaScript (Node)</option>
+          <option value="python">Python</option>
+          <option value="c++">C++</option>
+          <option value="c">C</option>
+          <option value="java">Java</option>
+          <option value="typescript">TypeScript</option>
+          <option value="go">Go</option>
+          <option value="rust">Rust</option>
+          <option value="php">PHP</option>
+          <option value="ruby">Ruby</option>
+          <option value="bash">Bash</option>
+        </select>
+        <button class="nav-cta btn-golden" id="runCodeBtn" onclick="runCodeUI()">▶ Run</button>
+        <label style="font-size:.8rem; display:flex; align-items:center; gap:6px; color:var(--text-secondary);">
+          <input type="checkbox" id="termAudioToggle" checked> Error sound
+        </label>
+      </div>
+      <textarea id="termCodeInput" spellcheck="false" style="width:100%; min-height:220px; background:rgba(0,0,0,.35); border:1px solid var(--panel-border); border-radius:14px; padding:16px; color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:.85rem; resize:vertical;">console.log("Hello from Knight Terminal!");</textarea>
+      <div class="shortcut-category-label">Output</div>
+      <pre id="termOutput" style="background:rgba(0,0,0,.4); border:1px solid var(--panel-border); border-radius:14px; padding:16px; font-family:'JetBrains Mono',monospace; font-size:.85rem; min-height:120px; white-space:pre-wrap; color:var(--text-secondary);">Ready.</pre>
+
+      <div class="shortcut-category-label" style="margin-top:18px;">Console — Run History</div>
+      <div id="termConsoleHistory" class="term-console-history"></div>
+    </div>
   </div>
-  <textarea id="termCodeInput" spellcheck="false" style="width:100%; min-height:220px; background:rgba(0,0,0,.35); border:1px solid var(--panel-border); border-radius:14px; padding:16px; color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:.85rem; resize:vertical;">console.log("Hello from Knight Terminal!");</textarea>
-  <div class="shortcut-category-label">Output</div>
-  <pre id="termOutput" style="background:rgba(0,0,0,.4); border:1px solid var(--panel-border); border-radius:14px; padding:16px; font-family:'JetBrains Mono',monospace; font-size:.85rem; min-height:120px; white-space:pre-wrap; color:var(--text-secondary);">Ready.</pre>
+</div>
+
+<!-- Import a public GitHub repository into a Knight project -->
+<div class="modal-overlay" id="githubImportModal">
+  <div class="modal-content" style="max-width:480px;">
+    <svg class="close-modal" onclick="closeModal('githubImportModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 style="margin-bottom:6px;">Import a Public Repository</h2>
+    <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:16px;">Pulls files straight from GitHub's public API — no token needed for public repos. Large or binary-heavy repos may hit file-size limits.</p>
+    <div class="field">
+      <label class="font-mono">owner/repo</label>
+      <input type="text" id="githubRepoInput" placeholder="e.g. twbs/bootstrap">
+    </div>
+    <div class="field">
+      <label class="font-mono">branch (optional)</label>
+      <input type="text" id="githubBranchInput" placeholder="main">
+    </div>
+    <p id="githubImportStatus" style="font-size:.78rem; color:var(--text-tertiary); min-height:18px;"></p>
+    <button class="submit-btn" style="width:100%;" onclick="importGithubRepoUI()">Import into a New Project</button>
+  </div>
 </div>
 
 <!-- ================= Studio — real project discovery ================= -->
@@ -764,6 +804,7 @@
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('commPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
     <div class="page-title">Communication</div>
+    <span class="server-pill" id="commServerPill" style="margin-left:auto;">offline (device-only)</span>
   </div>
   <div style="display:flex; gap:24px; flex-wrap:wrap;">
     <div style="min-width:220px;">
@@ -781,14 +822,29 @@
   </div>
 </div>
 
-<!-- ================= Notes = Codes ================= -->
+<!-- ================= Data-Base (Notes & Codes) ================= -->
 <div class="knight-page" id="notesPage">
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('notesPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Notes = Codes</div>
+    <div class="page-title">Data-Base — Notes &amp; Codes</div>
   </div>
-  <button class="nav-cta btn-golden" onclick="createNoteUI()" style="margin-bottom:20px;">+ New Note</button>
-  <div id="notesGrid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;"></div>
+  <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:18px; max-width:640px;">
+    Your private store of notes and code snippets — searchable, taggable, and pinnable. Nothing here leaves this device.
+  </p>
+
+  <div class="db-toolbar">
+    <button class="nav-cta btn-golden" onclick="createNoteUI('note')">+ New Note</button>
+    <button class="nav-cta" onclick="createNoteUI('code')">+ New Code Snippet</button>
+    <input type="text" id="notesSearchInput" placeholder="Search notes &amp; snippets…" oninput="renderNotes()">
+    <select id="notesSortSelect" onchange="renderNotes()">
+      <option value="recent">Sort: Recent</option>
+      <option value="pinned">Sort: Pinned first</option>
+      <option value="az">Sort: A–Z</option>
+    </select>
+  </div>
+  <div id="notesTagPills" class="db-tag-pills"></div>
+  <p id="notesCount" class="db-count"></p>
+  <div id="notesGrid" class="db-grid"></div>
 </div>
 
 <!-- ================= Arcade — real playable game ================= -->
@@ -803,52 +859,6 @@
 </div>
 
 <!-- ================= Guide ================= -->
-<div class="knight-page" id="guidePage">
-  <div class="page-topbar">
-    <div class="page-back" onclick="closeKnightPage('guidePage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Guide</div>
-  </div>
-  <div style="max-width:760px; display:flex; flex-direction:column; gap:22px; color:var(--text-secondary); font-size:.92rem; line-height:1.6;">
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Terminal</h3>Pick a language, write code, hit Run. It executes for real on a public runtime — output (or real errors) appear below.</div>
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Projects Manager</h3>Create a project, add files, and invite people by their Social ID as Viewer, Contributor, or Editor. Contributors' edits appear as Change Requests you approve or reject.</div>
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Studio</h3>Search and filter every public project on Knight, sorted by stars or recency.</div>
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Communication</h3>Pick a friend from your list and chat in real time — messages sync instantly via our own server (Socket.IO).</div>
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Notes = Codes</h3>Private notes only you can see — good for snippets, passwords-you-shouldn't-store-here, or scratch ideas.</div>
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Social Network</h3>Your Profile card shows your unique Social ID. Share it so others can send you a friend request.</div>
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Device Optimization</h3>Pick your device in Profile → Device Optimization Settings to switch input mode: Windows/Mac shortcuts, Tablet edge-scroll, Console D-pad, Handheld A/B buttons, or Headphone media-key navigation.</div>
-    <div><h3 style="color:var(--text-primary); margin-bottom:6px;">Deployment</h3>Knight can't host your project live — that needs a real hosting account. Save your deployed link on a project page once you've deployed it elsewhere, so your team always has it.</div>
-  </div>
-</div>
-
-<!-- ================= Admin ================= -->
-<div class="knight-page" id="adminPage">
-  <div class="page-topbar">
-    <div class="page-back" onclick="closeKnightPage('adminPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Admin</div>
-  </div>
-  <div id="adminBody">Checking access…</div>
-</div>
-
-<!-- ================= Knight Shortcuts ================= -->
-<div class="knight-page" id="shortcutPage">
-  <div class="page-topbar">
-    <div class="page-back" onclick="closeKnightPage('shortcutPage')">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-    </div>
-    <div class="page-title">Knight Shortcuts</div>
-  </div>
-  <div class="shortcut-os-tabs">
-    <div class="os-tab active" data-os="windows">Windows keys</div>
-    <div class="os-tab" data-os="macos">Mac keys</div>
-  </div>
-  <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:16px;">
-    These are real, working shortcuts inside Knight itself — not your operating system's shortcuts. Try them right now.
-  </p>
-  <input type="text" class="shortcut-search" id="shortcutSearchInput" placeholder="Search Knight shortcuts…">
-  <p id="shortcutCount" style="font-size:.8rem; color:var(--text-tertiary); margin-bottom:16px;"></p>
-  <div class="shortcut-grid" id="shortcutGrid"></div>
-</div>
-
 <!-- ================= Social & Friends ================= -->
 <div class="knight-page" id="socialPage">
   <div class="page-topbar">
@@ -904,7 +914,7 @@
 <div class="knight-page" id="settingsPage">
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('settingsPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Settings</div>
+    <div class="page-title">Settings &amp; Guides</div>
   </div>
 
   <div class="shortcut-category-label">Device Optimization</div>
@@ -912,8 +922,6 @@
   <div class="device-grid" id="settingsDeviceGrid" style="max-width:640px; margin-bottom:8px;">
     <div class="device-card" data-device="Laptop"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M1.5 19.5h21l-1.5 1.5H3z"/></svg><div style="font-weight:600;font-size:.9rem;">Laptop</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Alt-key shortcuts</div></div><div class="device-card" data-device="Desktop"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-blue)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="2" y="4" width="20" height="13" rx="1.5"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><div style="font-weight:600;font-size:.9rem;">Desktop</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Full-width layout</div></div><div class="device-card" data-device="Smartphone"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="5" y="2" width="14" height="20" rx="2.5"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Smartphone</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Large touch targets</div></div><div class="device-card" data-device="Tablet"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-green)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><div style="font-weight:600;font-size:.9rem;">Tablet</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Edge scroll controls</div></div><div class="device-card" data-device="Console"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#F3C623" stroke-width="1.8" style="margin-bottom:8px;"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="17" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/></svg><div style="font-weight:600;font-size:.9rem;">Console</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">Arrow-key D-pad nav</div></div><div class="device-card" data-device="Handheld"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--accent-coral)" stroke-width="1.8" style="margin-bottom:8px;"><rect x="3" y="6" width="18" height="12" rx="3"/><line x1="7" y1="12" x2="11" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><circle cx="15.5" cy="12.5" r="0.6" fill="currentColor"/><circle cx="17.5" cy="10.5" r="0.6" fill="currentColor"/></svg><div style="font-weight:600;font-size:.9rem;">Handheld</div><div style="font-size:.72rem;color:var(--text-tertiary);margin-top:2px;">On-screen A / B keys</div></div>
   </div>
-  <button class="nav-cta" style="margin-bottom:28px;" onclick="openKnightPage('shortcutPage')">View Device Optimization Keys &rarr;</button>
-
   <div class="shortcut-category-label">Default Page</div>
   <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:12px;">Choose what opens automatically the moment you sign in.</p>
   <select id="defaultPageSelect" style="max-width:320px; padding:12px 16px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:12px; color:var(--text-primary); margin-bottom:28px;">
@@ -923,11 +931,10 @@
     <option value="studioPage">Studio</option>
     <option value="commPage">Communication</option>
     <option value="socialPage">Social &amp; Friends</option>
-    <option value="notesPage">Notes = Codes</option>
+    <option value="notesPage">Data-Base (Notes &amp; Codes)</option>
     <option value="arcadePage">Arcade</option>
     <option value="gameBoosterPage">Game Booster</option>
     <option value="linkDeployerPage">Link Deployer</option>
-    <option value="guidePage">Guide</option>
   </select>
 
   <div class="shortcut-category-label">Preferences</div>
@@ -1014,6 +1021,18 @@
     <button class="nav-cta" onclick="extractDataSheet()">Export My Data (.json)</button>
     <button class="nav-cta" id="purgeGuestsBtn" onclick="purgeOldGuestsUI()">Purge Old Guest Accounts</button>
     <button class="nav-cta" style="color:var(--accent-coral);" onclick="wipeAllStorageUI()">Wipe Everything On This Device</button>
+  </div>
+
+  <!-- ===== Guides (merged from the old standalone Guide page) ===== -->
+  <div class="shortcut-category-label" style="margin-top:28px;">Guides</div>
+  <div style="max-width:760px; display:flex; flex-direction:column; gap:18px; color:var(--text-secondary); font-size:.9rem; line-height:1.6; margin-bottom:10px;">
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Terminal</h3>Pick a language, write code, hit Run — it executes for real on a public runtime. Open a project's Overview tab and hit Run Website to build and preview it in the same place, with a file sidebar and live console.</div>
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Projects</h3>Create a project, add files (or drag in a whole folder, GitHub-style), and invite people by Social ID as Viewer, Contributor, or Editor. Contributor edits land as Change Requests you approve or reject — nothing touches the real file until then.</div>
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Studio</h3>Browse every public project on Knight — Categories, Trending, Yours, Socials, or Near You — with search, voice search, and star ratings.</div>
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Communication</h3>Pick a friend and chat in real time over Knight's own WebSocket server — messages arrive instantly for anyone online, not on a delay.</div>
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Data-Base (Notes &amp; Codes)</h3>Private notes and code snippets only you can see — searchable, taggable, pinnable.</div>
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Social &amp; Nearby Knights</h3>Your Profile card shows your Social ID — share it for friend requests. "Go Live" on the Social page finds other Knights physically near you in real time.</div>
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Deploy</h3>Deploy a project straight to a real link once Knight Cloud (the Java backend) is connected, or build a portable .html and host it yourself anywhere.</div>
   </div>
 </div>
 
@@ -1115,8 +1134,8 @@
       <a onclick="openKnightPage('studioPage')">Studio</a>
       <a onclick="openKnightPage('terminalPage')">Terminal</a>
       <a onclick="openKnightPage('socialPage')">Social</a>
-      <a onclick="openKnightPage('notesPage')">Notes</a>
-      <a onclick="openKnightPage('guidePage')">Guide</a>
+      <a onclick="openKnightPage('notesPage')">Data-Base</a>
+      <a onclick="openKnightPage('settingsPage')">Settings &amp; Guides</a>
     </div>
   </div>
 </div>
