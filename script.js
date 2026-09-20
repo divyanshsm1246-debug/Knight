@@ -518,30 +518,30 @@ function removePasskey(id) {
 /* Twelve geometric emblems, drawn as SVG so they stay crisp at any size and
    pick up the current theme colour instead of looking like pasted emoji. */
 const AVATAR_SVGS = [
-  // 1 cube
+  // 1 cube — matches the brand mark
   '<path d="M24 5 L41 14.5 L41 33.5 L24 43 L7 33.5 L7 14.5 Z"/><path d="M7 14.5 L24 24 L41 14.5"/><path d="M24 24 L24 43"/>',
-  // 2 nested triangles
-  '<path d="M24 7 L42 39 L6 39 Z"/><path d="M24 19 L33 34 L15 34 Z"/>',
-  // 3 orbit
-  '<circle cx="24" cy="24" r="8"/><ellipse cx="24" cy="24" rx="18" ry="7.5" transform="rotate(-28 24 24)"/>',
-  // 4 stacked diamonds
-  '<path d="M24 5 L36 17 L24 29 L12 17 Z"/><path d="M24 25 L36 37 L24 43"/><path d="M24 25 L12 37 L24 43"/>',
-  // 5 hex core
-  '<path d="M24 5 L40 14.5 L40 33.5 L24 43 L8 33.5 L8 14.5 Z"/><circle cx="24" cy="24" r="5"/>',
-  // 6 chevrons
-  '<path d="M9 18 L24 8 L39 18"/><path d="M9 28 L24 18 L39 28"/><path d="M9 38 L24 28 L39 38"/>',
-  // 7 rotated squares
-  '<rect x="12" y="12" width="24" height="24" rx="2"/><rect x="12" y="12" width="24" height="24" rx="2" transform="rotate(45 24 24)"/>',
-  // 8 signal arcs
-  '<circle cx="24" cy="34" r="3.5"/><path d="M15 27a12 12 0 0 1 18 0"/><path d="M9 20a20 20 0 0 1 30 0"/>',
-  // 9 quad grid
-  '<rect x="8" y="8" width="14" height="14" rx="2"/><rect x="26" y="8" width="14" height="14" rx="2"/><rect x="8" y="26" width="14" height="14" rx="2"/><rect x="26" y="26" width="14" height="14" rx="2"/>',
-  // 10 asterisk burst
-  '<line x1="24" y1="6" x2="24" y2="42"/><line x1="8" y1="15" x2="40" y2="33"/><line x1="8" y1="33" x2="40" y2="15"/><circle cx="24" cy="24" r="4.5"/>',
-  // 11 shield
-  '<path d="M24 5 L40 11 V25 C40 34 33 40 24 43 C15 40 8 34 8 25 V11 Z"/><path d="M17 24 L22 29 L32 19"/>',
-  // 12 waves
-  '<path d="M7 18c5-6 10-6 15 0s10 6 15 0"/><path d="M7 27c5-6 10-6 15 0s10 6 15 0"/><path d="M7 36c5-6 10-6 15 0s10 6 15 0"/>',
+  // 2 diamond
+  '<path d="M24 5 L41 24 L24 43 L7 24 Z"/>',
+  // 3 circle
+  '<circle cx="24" cy="24" r="18"/>',
+  // 4 triangle
+  '<path d="M24 6 L42 40 L6 40 Z"/>',
+  // 5 hexagon
+  '<path d="M24 5 L40 14.5 L40 33.5 L24 43 L8 33.5 L8 14.5 Z"/>',
+  // 6 star
+  '<path d="M24 4 L29 18 L44 18 L32 27 L37 42 L24 33 L11 42 L16 27 L4 18 L19 18 Z"/>',
+  // 7 plus
+  '<path d="M24 6 V42 M6 24 H42"/>',
+  // 8 arrow
+  '<path d="M10 38 L38 10 M38 10 H20 M38 10 V28"/>',
+  // 9 square
+  '<rect x="8" y="8" width="32" height="32" rx="3"/>',
+  // 10 bolt
+  '<path d="M26 4 L10 26 H21 L18 44 L38 20 H26 Z"/>',
+  // 11 crescent
+  '<path d="M30 5 A18 18 0 1 0 30 43 A14 14 0 1 1 30 5 Z"/>',
+  // 12 pentagon
+  '<path d="M24 5 L42 19 L35 40 L13 40 L6 19 Z"/>',
 ];
 
 function emblemSvg(i) {
@@ -697,7 +697,15 @@ function openKnightPage(pageId, fromRouter = false) {
     gameBoosterPage:  renderGameBooster,
     linkDeployerPage: renderLinkDeployer,
     settingsPage:     renderSettings,
-    terminalPage:     () => renderTermFileList(DB.data().projects[terminalProjectId]),
+    terminalPage:     () => {
+      renderTermWebsiteList();
+      if (terminalProjectId && DB.data().projects[terminalProjectId]) {
+        openTerminalWorkspace(terminalProjectId);
+      } else {
+        $('termNoProjectHint').style.display = 'block';
+        $('termWorkspace').style.display = 'none';
+      }
+    },
   }[pageId] || (() => {}))();
 
   if (pageId !== 'terminalPage') stopTermFps();
@@ -2536,6 +2544,63 @@ function beep() {
 
 /* ----- Terminal file sidebar ---------------------------------------------- */
 
+/** All projects this person can open in the Terminal, most-recently-touched first. */
+function myTerminalProjects() {
+  const all = Object.values(DB.data().projects).filter(p => p.ownerId === myId() || myRoleOn(p));
+  return all.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+function renderTermWebsiteList() {
+  const box = $('termWebsiteList');
+  if (!box) return;
+  const list = myTerminalProjects();
+  box.innerHTML = list.length
+    ? list.map(p => `<div class="term-file-row ${p.id === terminalProjectId ? 'is-active' : ''}" onclick="openTerminalWorkspace('${p.id}')">
+        <span class="term-file-icon">◇</span>
+        <span class="term-file-name">${esc(p.name)}</span>
+      </div>`).join('')
+    : `<p style="font-size:.76rem;color:var(--text-tertiary);">No projects yet — create one from Projects or Studio.</p>`;
+}
+
+let termWorkspaceTab = 'files';
+
+function setTermWorkspaceTab(tab) {
+  termWorkspaceTab = tab;
+  $$('.term-ws-tab').forEach(b => b.classList.toggle('active', b.dataset.wtab === tab));
+  ['files', 'run', 'debug', 'commits', 'server'].forEach(t => {
+    const panel = $('termWsPanel-' + t);
+    if (panel) panel.classList.toggle('active', t === tab);
+  });
+  if (tab === 'server') {
+    const p = DB.data().projects[terminalProjectId];
+    if (p) loadTermMiniPreview(p);
+  } else {
+    stopTermFps();
+  }
+  if (tab === 'debug') runTermDebugScan();
+}
+
+/** The single entry point for "open this website in the Terminal" — loads
+    everything (files, console, commits, server) into one workspace, exactly
+    like clicking into a proper IDE project rather than just an editor tab. */
+function openTerminalWorkspace(projectId) {
+  const p = DB.data().projects[projectId];
+  if (!p) { toast('Project not found.', true); return; }
+  if (!canSeeProject(p)) { toast('You do not have access to that project.', true); return; }
+
+  terminalProjectId = projectId;
+  currentProjectId = projectId;   // so Compare/Restore/Deploy reuse the same project-detail logic
+
+  $('termNoProjectHint').style.display = 'none';
+  $('termWorkspace').style.display = 'block';
+
+  renderTermWebsiteList();
+  renderTermFileList(p);
+  renderTermCommitsList(p);
+  setTermWorkspaceTab(termWorkspaceTab || 'files');
+  toast(p.name + ' loaded.');
+}
+
 function renderTermFileList(p) {
   const box = $('termFileList');
   const title = $('termPageTitle');
@@ -2543,7 +2608,7 @@ function renderTermFileList(p) {
   if (!box) return;
 
   if (!p) {
-    box.innerHTML = `<p style="font-size:.76rem;color:var(--text-tertiary);">No project loaded — open one with Send to Terminal.</p>`;
+    box.innerHTML = '';
     if (title) title.textContent = 'Terminal';
     if (pill) pill.style.display = 'none';
     return;
@@ -2559,11 +2624,31 @@ function renderTermFileList(p) {
     </div>`).join('');
 }
 
+function renderTermCommitsList(p) {
+  const box = $('termCommitsList');
+  if (!box) return;
+  const list = (p.versions || []).slice().reverse();
+  box.innerHTML = list.length
+    ? list.map((v, i) => `<div class="version-card">
+        <div class="version-head">
+          <div><b>${esc(v.label)}</b>${i === 0 ? '<span class="version-current">current</span>' : ''}
+          <div class="version-meta">${timeAgo(v.at)} · ${Object.keys(v.snapshot || {}).length} files</div></div>
+          <div style="display:flex; gap:6px;">
+            ${i !== 0 ? `<button class="nav-cta" onclick="restoreVersion('${v.id}')">Restore</button>` : ''}
+            <button class="nav-cta" onclick="openVersionDiffUI('${v.id}')">Compare</button>
+          </div>
+        </div>
+        <p class="version-note">${esc(v.note || 'No description given.')}</p>
+      </div>`).join('')
+    : `<p style="font-size:.82rem;color:var(--text-tertiary);">No commits yet — cut a version from the project's Versions tab.</p>`;
+}
+
 function loadTermFile(name) {
   const p = DB.data().projects[terminalProjectId];
   if (!p || p.files[name] === undefined) return;
   $('termCodeInput').value = p.files[name];
   if (LANG_BY_EXT[extOf(name)]) $('termLanguage').value = LANG_BY_EXT[extOf(name)];
+  setTermWorkspaceTab('run');
   toast(name + ' loaded.');
 }
 
@@ -2574,6 +2659,7 @@ let termFpsHandle = null;
 function loadTermMiniPreview(p) {
   const frame = $('termMiniFrame');
   const hint = $('termMiniHint');
+  const serverHint = $('termServerHint');
   if (!frame) return;
 
   const hasHtml = Object.keys(p.files || {}).some(n => ['html', 'htm'].includes(extOf(n)));
@@ -2583,6 +2669,7 @@ function loadTermMiniPreview(p) {
     // instead of a local re-bundle that can't reach whatever server it talks to.
     frame.src = p.deployedUrl;
     hint.style.display = 'none';
+    if (serverHint) serverHint.textContent = 'Showing the real deployed site — its backend runs live, not a local copy.';
     startTermFps();
     return;
   }
@@ -2593,6 +2680,7 @@ function loadTermMiniPreview(p) {
     frame.removeAttribute('src');
     frame.srcdoc = inlineProject(p, entry);
     hint.style.display = 'none';
+    if (serverHint) serverHint.textContent = 'Local bundle — deploy to get a real, always-on link.';
     startTermFps();
     return;
   }
@@ -2600,6 +2688,7 @@ function loadTermMiniPreview(p) {
   frame.removeAttribute('src'); frame.srcdoc = '';
   hint.textContent = 'This project has no website to preview — it\'s pure code.';
   hint.style.display = 'block';
+  if (serverHint) serverHint.textContent = 'No .html file yet — nothing to run as a website.';
   stopTermFps();
 }
 
@@ -2709,6 +2798,55 @@ function findCleanestVersion(p) {
   const scanned = scanAllVersions(p);
   if (!scanned.length) return null;
   return scanned.slice().sort((a, b) => a.issues.length - b.issues.length || b.at - a.at)[0];
+}
+
+/* ----- Debug tab: scan the live/current files, not just saved versions --- */
+
+function runTermDebugScan() {
+  const p = DB.data().projects[terminalProjectId];
+  const box = $('termDebugResult');
+  const count = $('termDebugCount');
+  if (!p || !box) return;
+
+  const issues = scanSnapshotForIssues(p.files);
+  if (count) count.textContent = issues.length ? ' ' + issues.length : '';
+
+  box.innerHTML = issues.length
+    ? issues.map(i => `<div class="version-scan-row" style="border-bottom:1px solid var(--panel-border); padding-bottom:8px; margin-bottom:8px;">
+        <span class="has-issues">${esc(i.file)}</span>
+        <button class="nav-cta" style="font-size:.7rem;padding:4px 10px;" onclick="loadTermFile('${esc(i.file)}')">Open</button>
+      </div>
+      <div class="version-scan-issue" style="margin-bottom:6px;">${esc(i.message)}</div>`).join('')
+    : `<div class="version-scan-summary is-clean">No detectable issues in the current files.</div>`;
+}
+
+/* ----- Network tab: real timing/status check against the deployed site ---- */
+
+async function runNetworkCheckUI() {
+  const p = DB.data().projects[terminalProjectId];
+  const box = $('termNetworkResult');
+  if (!p || !box) return;
+
+  if (!p.deployedUrl) {
+    box.innerHTML = `<div class="storage-row"><span class="storage-row-label">Not deployed</span><span class="storage-row-bytes">—</span></div>`;
+    return;
+  }
+
+  box.innerHTML = `<div class="storage-row"><span class="storage-row-label">Checking ${esc(p.deployedUrl)}…</span></div>`;
+  const start = performance.now();
+  try {
+    const res = await fetch(p.deployedUrl, { method: 'GET', mode: 'cors', cache: 'no-store' });
+    const ms = Math.round(performance.now() - start);
+    box.innerHTML = [
+      ['Status', res.status + ' ' + (res.ok ? 'OK' : res.statusText)],
+      ['Response time', ms + ' ms'],
+      ['URL', p.deployedUrl],
+    ].map(([k, v]) => `<div class="storage-row"><span class="storage-row-label">${k}</span><span class="storage-row-bytes">${esc(String(v))}</span></div>`).join('');
+  } catch (e) {
+    const ms = Math.round(performance.now() - start);
+    box.innerHTML = `<div class="storage-row"><span class="storage-row-label" style="color:var(--accent-coral);">Request failed after ${ms} ms</span><span class="storage-row-bytes">${esc(e.message)}</span></div>
+      <p style="font-size:.7rem;color:var(--text-tertiary);margin-top:6px;">A failed cross-origin fetch can also just mean the host blocks requests from other sites (CORS) — the site itself may still be fine in a normal browser tab.</p>`;
+  }
 }
 
 function scanVersionsForErrorsUI() {
@@ -3731,10 +3869,8 @@ function sendProjectToTerminalUI() {
   const p = DB.data().projects[currentProjectId];
   if (!p) return;
 
-  terminalProjectId = p.id;
   openKnightPage('terminalPage');
-  renderTermFileList(p);
-  loadTermMiniPreview(p);
+  openTerminalWorkspace(p.id);
 
   const runnable = Object.keys(p.files).filter(n => LANG_BY_EXT[extOf(n)]);
   if (runnable.length) {
@@ -3746,7 +3882,6 @@ function sendProjectToTerminalUI() {
       $('termCodeInput').value = p.files[file];
     }
   }
-  toast(p.name + ' loaded into the Terminal.');
 }
 
 /* ----- export / deploy ----- */
@@ -4353,6 +4488,7 @@ Object.assign(window, {
   setPreviewWidth, openPreviewInTab, sendProjectToTerminalUI, exportProjectUI,
   openPreviewFor, saveDeployUrlFor, handleNewProjectFiles,
   loadTermFile, restoreTermRun, forkProjectUI, openVersionDiffUI, scanVersionsForErrorsUI,
+  openTerminalWorkspace, setTermWorkspaceTab, runTermDebugScan, runNetworkCheckUI,
   openGithubImportUI, importGithubRepoUI,
   setNotifFilter, markAllNotificationsRead, deleteNotification,
 });

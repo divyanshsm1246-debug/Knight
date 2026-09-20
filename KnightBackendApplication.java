@@ -1235,6 +1235,67 @@ class PresenceController {
 class PresenceRequest { public Double lat, lng, accuracy; }
 
 /* -------------------------------------------------------------------------
+   ANALYTICS — powers the Database column on the Data-Base (Notes & Codes)
+   page: real signed-in-user counts, who's active right now, and day-by-day
+   signup/activity history for the charts. Every number here comes straight
+   from the same tables the rest of the app already writes to — nothing is
+   synthesized.
+   ------------------------------------------------------------------------- */
+@RestController
+@RequestMapping("/api/analytics")
+class AnalyticsController {
+    private final AuthService auth;
+    private final UserRepo users;
+    private final ProjectRepo projects;
+    private final DeployedSiteRepo sites;
+    private final NotifRepo notifs;
+
+    AnalyticsController(AuthService auth, UserRepo users, ProjectRepo projects,
+                         DeployedSiteRepo sites, NotifRepo notifs) {
+        this.auth = auth; this.users = users; this.projects = projects;
+        this.sites = sites; this.notifs = notifs;
+    }
+
+    @GetMapping("/summary")
+    ResponseEntity<Map<String, Object>> summary(@RequestHeader(value = "Authorization", required = false) String h) {
+        auth.requireUser(h);   // any signed-in account can see this deployment's own stats
+
+        List<KnightUser> allUsers = users.findAll();
+        Instant activeCutoff = Instant.now().minusSeconds(300);   // 5 minutes
+        long activeNow = allUsers.stream().filter(u -> u.getLastSeen().isAfter(activeCutoff)).count();
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("totalUsers", allUsers.size());
+        out.put("activeUsers", activeNow);
+        out.put("totalProjects", projects.count());
+        out.put("deployedSites", sites.count());
+        out.put("signupsByDay", byDay(allUsers.stream().map(KnightUser::getCreatedAt).collect(Collectors.toList()), 14));
+        out.put("activityByDay", byDay(
+                notifs.findAll().stream().map(Notification::getCreatedAt).collect(Collectors.toList()), 7));
+        return ResponseEntity.ok(out);
+    }
+
+    /** Group a list of timestamps into day buckets going back N days, oldest first —
+        exactly what a rise-and-fall line chart or a bar chart needs to draw. */
+    private List<Map<String, Object>> byDay(List<Instant> timestamps, int days) {
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        Map<java.time.LocalDate, Long> counts = timestamps.stream()
+                .map(t -> t.atZone(java.time.ZoneOffset.UTC).toLocalDate())
+                .collect(Collectors.groupingBy(d -> d, Collectors.counting()));
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (int i = days - 1; i >= 0; i--) {
+            java.time.LocalDate d = today.minusDays(i);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("date", d.toString());
+            row.put("count", counts.getOrDefault(d, 0L));
+            out.add(row);
+        }
+        return out;
+    }
+}
+
+/* -------------------------------------------------------------------------
    ERROR HANDLING
    Errors come back as clean JSON with a readable message, so the frontend can
    show the real reason instead of a generic "couldn't fetch account".

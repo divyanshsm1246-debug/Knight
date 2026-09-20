@@ -1115,3 +1115,24 @@ body.device-smartphone .server-toggle{ right:14px; bottom:14px; padding:10px 14p
 .version-scan-row .has-issues{ color:var(--accent-coral); }
 .version-scan-row .no-issues{ color:var(--accent-green); }
 .version-scan-issue{ font-size:.7rem; color:var(--text-tertiary); padding:0 4px 6px 14px; font-family:'JetBrains Mono',monospace; }
+
+/* ============================================================
+   TERMINAL WORKSPACE
+   ============================================================ */
+
+.term-file-row.is-active{ background:rgba(243,198,35,.1); color:var(--accent-gold); }
+.term-file-row.is-active .term-file-icon{ color:var(--accent-gold); }
+
+.term-workspace-tabs{
+  display:flex; gap:4px; margin-bottom:20px; flex-wrap:wrap;
+  border-bottom:1px solid var(--panel-border);
+}
+.term-ws-tab{
+  font-family:inherit; font-size:.82rem; font-weight:500; cursor:pointer;
+  padding:10px 16px; background:none; border:none; color:var(--text-tertiary);
+  border-bottom:2px solid transparent; transition:all .18s; margin-bottom:-1px;
+}
+.term-ws-tab:hover{ color:var(--text-primary); }
+.term-ws-tab.active{ color:var(--accent-gold); border-bottom-color:var(--accent-gold); }
+.term-ws-panel{ display:none; animation:projFade .18s ease; }
+.term-ws-panel.active{ display:block; }
