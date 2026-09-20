@@ -28,7 +28,11 @@
 
 // Leave as null to run fully locally with no server at all.
 // Set to e.g. "https://knight-backend.onrender.com" once you deploy the Java file.
-const API_BASE = null;
+// These are no longer hardcoded — see Settings & Guides → Cloud Connection.
+// They start null (fully local/offline) and get restored from saved prefs at
+// boot, and updated live the moment someone saves a URL in Settings, with no
+// code edit and no page reload required.
+let API_BASE = null;
 
 const SESSION_DAYS = 365;          // how long "stay signed in" lasts
 const LS = {
@@ -692,7 +696,7 @@ function openKnightPage(pageId, fromRouter = false) {
     studioPage:       renderStudio,
     socialPage:       renderSocialPage,
     commPage:         renderCommPage,
-    notesPage:        renderNotes,
+    notesPage:        () => { renderNotes(); renderDbAnalytics(); },
     arcadePage:       startMemoryGame,
     gameBoosterPage:  renderGameBooster,
     linkDeployerPage: renderLinkDeployer,
@@ -2131,8 +2135,9 @@ function startVoiceSearchUI() {
 
 // Point this at your deployed websocket-server.js, e.g. "wss://knight-ws.onrender.com".
 // Leave null to stay in local/offline mode.
-const WS_BASE = null;
-const WS_SERVER_KEY = 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';   // must match SERVER_KEY there
+// Same deal as API_BASE — configurable from Settings, not hardcoded.
+let WS_BASE = null;
+let WS_SERVER_KEY = 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';
 
 let socket = null;
 let socketRoom = null;
@@ -2306,7 +2311,8 @@ function sendChatMessageUI() {
 }
 
 /* ---------------------------------------------------------------------------
-   16. DATA-BASE — notes & code snippets: searchable, tagged, pinnable
+   16. DATA-BASE — Notes column (quests, mind maps, mic, learnings)
+                   Database column (real site analytics + charts)
 --------------------------------------------------------------------------- */
 
 const NOTE_LANGS = ['text', 'javascript', 'python', 'java', 'html', 'css', 'bash', 'json', 'sql'];
@@ -2338,7 +2344,7 @@ function renderNotes() {
   const sort = $('notesSortSelect')?.value || 'recent';
 
   let notes = myNotes().filter(n =>
-    (!q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || (n.tags || []).some(t => t.toLowerCase().includes(q)))
+    (!q || n.title.toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q) || (n.tags || []).some(t => t.toLowerCase().includes(q)))
     && (!notesActiveTag || (n.tags || []).includes(notesActiveTag))
   );
 
@@ -2349,30 +2355,52 @@ function renderNotes() {
   const count = $('notesCount');
   if (count) count.textContent = notes.length + ' of ' + myNotes().length + (myNotes().length === 1 ? ' item' : ' items');
 
-  $('notesGrid').innerHTML = notes.length
-    ? notes.map(n => noteCard(n)).join('')
-    : `<p style="font-size:.9rem;color:var(--text-tertiary);">${myNotes().length ? 'Nothing matches that search.' : 'Nothing here yet — add a note or a code snippet.'}</p>`;
+  const grid = $('notesGrid');
+  if (grid) {
+    grid.innerHTML = notes.length
+      ? notes.map((n, i) => questCard(n, i)).join('')
+      : `<p style="font-size:.9rem;color:var(--text-tertiary);">${myNotes().length ? 'Nothing matches that search.' : 'Nothing here yet — add a note, snippet, mind map, or learning.'}</p>`;
+  }
 }
 
-function noteCard(n) {
-  const isCode = n.type === 'code';
-  return `<div class="db-card ${n.pinned ? 'is-pinned' : ''}">
+const NOTE_TYPE_META = {
+  note:    { icon: '📝', label: 'Note' },
+  code:    { icon: '⌘',  label: 'Code' },
+  mindmap: { icon: '◎',  label: 'Mind Map' },
+  learning:{ icon: '🎓', label: 'Learning' },
+};
+
+/** A note rendered as a "quest" — a gently floating card with a completion
+    toggle, like a small log entry rather than a flat sticky note. */
+function questCard(n, index) {
+  const meta = NOTE_TYPE_META[n.type] || NOTE_TYPE_META.note;
+  const delay = (index % 6) * 0.35;
+
+  let body = '';
+  if (n.type === 'mindmap') {
+    body = `<div class="quest-mindmap-preview">${renderMindMapThumbnail(n.mindmap)}</div>`;
+  } else if (n.type === 'learning') {
+    body = `<p class="quest-body">${esc((n.body || '').slice(0, 160))}${(n.body || '').length > 160 ? '…' : ''}</p>
+      ${n.source ? `<div class="quest-source">Source: ${esc(n.source)}</div>` : ''}`;
+  } else {
+    body = `<p class="quest-body ${n.type === 'code' ? 'font-mono' : ''}">${esc((n.body || '').slice(0, 160))}${(n.body || '').length > 160 ? '…' : ''}</p>`;
+  }
+
+  return `<div class="db-card quest-card ${n.pinned ? 'is-pinned' : ''} ${n.completed ? 'is-complete' : ''}" style="animation-delay:${delay}s;" onclick="openNoteForEdit('${n.id}')">
     <div class="db-card-head">
-      <h3 contenteditable="true" onblur="updateNote('${n.id}','title',this.textContent)">${esc(n.title)}</h3>
-      <button class="db-pin-btn ${n.pinned ? 'active' : ''}" title="Pin" onclick="toggleNotePin('${n.id}')">
+      <span class="quest-check ${n.completed ? 'checked' : ''}" title="Mark complete" onclick="event.stopPropagation(); toggleNoteComplete('${n.id}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+      </span>
+      <h3>${esc(n.title)}</h3>
+      <button class="db-pin-btn ${n.pinned ? 'active' : ''}" title="Pin" onclick="event.stopPropagation(); toggleNotePin('${n.id}')">
         <svg viewBox="0 0 24 24" fill="${n.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8"><path d="M12 2 L14.5 8.5 L21 9.5 L16.5 14 L17.5 21 L12 17.5 L6.5 21 L7.5 14 L3 9.5 L9.5 8.5 Z"/></svg>
       </button>
     </div>
-    ${isCode ? `<select class="db-lang-select" onchange="updateNote('${n.id}','language',this.value)">
-        ${NOTE_LANGS.map(l => `<option value="${l}" ${n.language === l ? 'selected' : ''}>${l}</option>`).join('')}
-      </select>` : ''}
-    <textarea class="${isCode ? 'db-code-area' : 'db-note-area'}" spellcheck="false"
-      onblur="updateNote('${n.id}','body',this.value)">${esc(n.body)}</textarea>
-    <input type="text" class="db-tags-input" placeholder="tags, comma, separated" value="${esc((n.tags || []).join(', '))}"
-      onblur="updateNoteTags('${n.id}', this.value)">
+    <span class="quest-type-tag">${meta.icon} ${meta.label}${n.type === 'code' && n.language ? ' · ' + n.language : ''}</span>
+    ${body}
     <div class="db-card-foot">
       <span class="db-card-time">${timeAgo(n.at)}</span>
-      <div style="display:flex; gap:6px;">
+      <div style="display:flex; gap:6px;" onclick="event.stopPropagation();">
         <button class="nav-cta" style="font-size:.7rem;padding:5px 9px;" onclick="duplicateNoteUI('${n.id}')">Duplicate</button>
         <button class="nav-cta" style="color:var(--accent-coral);font-size:.7rem;padding:5px 9px;" onclick="deleteNote('${n.id}')">Delete</button>
       </div>
@@ -2380,20 +2408,79 @@ function noteCard(n) {
   </div>`;
 }
 
+function toggleNoteComplete(id) {
+  const d = DB.data();
+  const n = (d.notes[myId()] || []).find(x => x.id === id);
+  if (!n) return;
+  n.completed = !n.completed;
+  DB.saveData(d);
+  renderNotes();
+}
+
+/* ----- create / edit: note, code, learning (mindmap has its own editor) --- */
+
 function createNoteUI(type = 'note') {
   const d = DB.data();
   d.notes[myId()] = d.notes[myId()] || [];
-  d.notes[myId()].unshift({
+  const n = {
     id: uid('note'),
-    title: type === 'code' ? 'Untitled snippet' : 'Untitled note',
-    body: '',
-    type,
-    language: type === 'code' ? 'javascript' : null,
-    tags: [],
-    pinned: false,
-    at: Date.now(),
-  });
+    title: type === 'code' ? 'Untitled snippet' : type === 'learning' ? 'Untitled learning' : 'Untitled note',
+    body: '', type, language: type === 'code' ? 'javascript' : null,
+    source: type === 'learning' ? '' : undefined,
+    tags: [], pinned: false, completed: false, at: Date.now(),
+  };
+  d.notes[myId()].unshift(n);
   DB.saveData(d);
+  renderNotes();
+  openNoteForEdit(n.id);
+}
+
+let editingNoteId = null;
+
+function openNoteForEdit(id) {
+  const n = myNotes().find(x => x.id === id);
+  if (!n) return;
+  if (n.type === 'mindmap') { openMindMapEditor(id); return; }
+
+  editingNoteId = id;
+  $('noteEditorTitle').value = n.title;
+  $('noteEditorBody').value = n.body || '';
+
+  const langSel = $('noteEditorLangSelect');
+  if (n.type === 'code') {
+    langSel.style.display = 'block';
+    langSel.innerHTML = NOTE_LANGS.map(l => `<option value="${l}" ${n.language === l ? 'selected' : ''}>${l}</option>`).join('');
+  } else {
+    langSel.style.display = 'none';
+  }
+
+  const learningFields = $('noteEditorLearningFields');
+  if (n.type === 'learning') {
+    learningFields.style.display = 'block';
+    learningFields.innerHTML = `<input type="text" id="noteEditorSource" placeholder="Source (book, course, link…)" value="${esc(n.source || '')}" style="width:100%; padding:9px 12px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:8px; color:var(--text-primary); font-size:.82rem;">`;
+  } else {
+    learningFields.style.display = 'none';
+    learningFields.innerHTML = '';
+  }
+
+  openModalRaw('noteEditorModal');
+}
+
+function saveNoteEditorUI() {
+  if (!editingNoteId) return;
+  const d = DB.data();
+  const n = (d.notes[myId()] || []).find(x => x.id === editingNoteId);
+  if (!n) return;
+
+  n.title = $('noteEditorTitle').value.trim() || n.title;
+  n.body = $('noteEditorBody').value;
+  n.at = Date.now();
+  if (n.type === 'code') n.language = $('noteEditorLangSelect').value;
+  if (n.type === 'learning') { const src = $('noteEditorSource'); if (src) n.source = src.value.trim(); }
+
+  DB.saveData(d);
+  closeModal('noteEditorModal');
+  stopNoteDictation();
   renderNotes();
 }
 
@@ -2402,19 +2489,10 @@ function duplicateNoteUI(id) {
   const list = d.notes[myId()] || [];
   const n = list.find(x => x.id === id);
   if (!n) return;
-  list.unshift({ ...n, id: uid('note'), title: n.title + ' (copy)', at: Date.now() });
+  list.unshift({ ...structuredCloneSafe(n), id: uid('note'), title: n.title + ' (copy)', at: Date.now() });
   DB.saveData(d);
   renderNotes();
   toast('Duplicated.');
-}
-
-function updateNote(id, field, value) {
-  const d = DB.data();
-  const n = (d.notes[myId()] || []).find(x => x.id === id);
-  if (!n) return;
-  n[field] = value; n.at = Date.now();
-  DB.saveData(d);
-  if (field === 'title') renderNotesTagPills();   // keep tag pills in sync if search state changes
 }
 
 function updateNoteTags(id, raw) {
@@ -2442,6 +2520,337 @@ function deleteNote(id) {
   DB.saveData(d);
   renderNotes();
 }
+
+/* ----- mic dictation into the note editor's body -------------------------- */
+
+let noteDictationRecognizer = null;
+
+function toggleNoteDictation() {
+  noteDictationRecognizer ? stopNoteDictation() : startNoteDictation();
+}
+
+function startNoteDictation() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Voice dictation is not supported in this browser.', true); return; }
+
+  noteDictationRecognizer = new SR();
+  noteDictationRecognizer.lang = 'en-US';
+  noteDictationRecognizer.continuous = true;
+  noteDictationRecognizer.interimResults = false;
+
+  noteDictationRecognizer.onstart = () => { $('noteEditorMicBtn').classList.add('listening'); toast('Listening — speak your note.'); };
+  noteDictationRecognizer.onresult = (e) => {
+    const said = Array.from(e.results).slice(-1)[0][0].transcript;
+    const box = $('noteEditorBody');
+    box.value = (box.value ? box.value + ' ' : '') + said;
+  };
+  noteDictationRecognizer.onerror = () => stopNoteDictation();
+  noteDictationRecognizer.onend = () => stopNoteDictation();
+  noteDictationRecognizer.start();
+}
+
+function stopNoteDictation() {
+  if (noteDictationRecognizer) { try { noteDictationRecognizer.stop(); } catch {} noteDictationRecognizer = null; }
+  const btn = $('noteEditorMicBtn');
+  if (btn) btn.classList.remove('listening');
+}
+
+/* ----- mind maps ------------------------------------------------------------ */
+
+let mindMapEditingId = null;
+let mindMapSelected = new Set();
+let mindMapDragId = null;
+let mindMapDragMoved = false;
+
+function createMindMapUI() {
+  const d = DB.data();
+  d.notes[myId()] = d.notes[myId()] || [];
+  const n = {
+    id: uid('note'), title: 'Untitled mind map', type: 'mindmap',
+    mindmap: { nodes: [], edges: [] }, tags: [], pinned: false, completed: false, at: Date.now(),
+  };
+  d.notes[myId()].unshift(n);
+  DB.saveData(d);
+  openMindMapEditor(n.id);
+}
+
+function openMindMapEditor(id) {
+  const n = myNotes().find(x => x.id === id);
+  if (!n) return;
+  mindMapEditingId = id;
+  mindMapSelected = new Set();
+  $('mindMapTitle').textContent = n.title;
+  renderMindMapCanvas(n.mindmap || { nodes: [], edges: [] });
+  openModalRaw('mindMapModal');
+}
+
+function closeMindMapUI() {
+  closeModal('mindMapModal');
+  mindMapEditingId = null;
+}
+
+function currentMindMap() {
+  const n = myNotes().find(x => x.id === mindMapEditingId);
+  return n ? (n.mindmap = n.mindmap || { nodes: [], edges: [] }) : { nodes: [], edges: [] };
+}
+
+function addMindMapNode() {
+  const text = (prompt('Node label:') || '').trim();
+  if (!text) return;
+  const mm = currentMindMap();
+  mm.nodes.push({ id: uid('nd'), x: 80 + Math.random() * 500, y: 60 + Math.random() * 260, text });
+  renderMindMapCanvas(mm);
+}
+
+function connectMindMapSelected() {
+  if (mindMapSelected.size !== 2) { toast('Select exactly two nodes to connect or disconnect.', true); return; }
+  const [a, b] = Array.from(mindMapSelected);
+  const mm = currentMindMap();
+  const i = mm.edges.findIndex(e => (e[0] === a && e[1] === b) || (e[0] === b && e[1] === a));
+  if (i === -1) mm.edges.push([a, b]); else mm.edges.splice(i, 1);
+  mindMapSelected = new Set();
+  renderMindMapCanvas(mm);
+}
+
+function deleteMindMapSelected() {
+  if (!mindMapSelected.size) { toast('Select a node first.', true); return; }
+  const mm = currentMindMap();
+  mm.nodes = mm.nodes.filter(n => !mindMapSelected.has(n.id));
+  mm.edges = mm.edges.filter(e => !mindMapSelected.has(e[0]) && !mindMapSelected.has(e[1]));
+  mindMapSelected = new Set();
+  renderMindMapCanvas(mm);
+}
+
+function renderMindMapCanvas(mm) {
+  const svg = $('mindMapCanvas');
+  if (!svg) return;
+
+  const edgeLines = mm.edges.map(([a, b]) => {
+    const na = mm.nodes.find(n => n.id === a), nb = mm.nodes.find(n => n.id === b);
+    if (!na || !nb) return '';
+    return `<line x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}" stroke="var(--accent-gold)" stroke-width="1.5" opacity="0.55"/>`;
+  }).join('');
+
+  const nodeEls = mm.nodes.map(n => `
+    <g class="mindmap-node ${mindMapSelected.has(n.id) ? 'selected' : ''}" data-id="${n.id}" transform="translate(${n.x},${n.y})" style="cursor:grab;">
+      <circle r="26" fill="rgba(243,198,35,.12)" stroke="var(--accent-gold)" stroke-width="${mindMapSelected.has(n.id) ? 3 : 1.5}"/>
+      <text text-anchor="middle" dy="4" font-size="10" fill="#fff" font-family="Manrope, sans-serif">${esc(n.text.slice(0, 12))}</text>
+    </g>`).join('');
+
+  svg.innerHTML = edgeLines + nodeEls;
+
+  $$('.mindmap-node', svg).forEach(g => {
+    g.addEventListener('mousedown', (e) => {
+      mindMapDragId = g.dataset.id;
+      e.preventDefault();
+    });
+    g.addEventListener('click', () => {
+      if (mindMapDragMoved) { mindMapDragMoved = false; return; }
+      const id = g.dataset.id;
+      mindMapSelected.has(id) ? mindMapSelected.delete(id) : mindMapSelected.add(id);
+      renderMindMapCanvas(currentMindMap());
+    });
+  });
+
+  wireMindMapDrag();
+}
+
+let mindMapDragWired = false;
+
+function wireMindMapDrag() {
+  if (mindMapDragWired) return;
+  mindMapDragWired = true;
+  const svg = $('mindMapCanvas');
+  if (!svg) return;
+  svg.addEventListener('mousemove', (e) => {
+    if (!mindMapDragId) return;
+    mindMapDragMoved = true;
+    const rect = svg.getBoundingClientRect();
+    const scaleX = 680 / rect.width, scaleY = 380 / rect.height;
+    const mm = currentMindMap();
+    const node = mm.nodes.find(n => n.id === mindMapDragId);
+    if (node) {
+      node.x = Math.max(20, Math.min(660, (e.clientX - rect.left) * scaleX));
+      node.y = Math.max(20, Math.min(360, (e.clientY - rect.top) * scaleY));
+      renderMindMapCanvas(mm);
+    }
+  });
+  window.addEventListener('mouseup', () => { mindMapDragId = null; });
+}
+
+function saveMindMapUI() {
+  const d = DB.data();
+  const n = (d.notes[myId()] || []).find(x => x.id === mindMapEditingId);
+  if (!n) return;
+  n.title = $('mindMapTitle').textContent.trim() || n.title;
+  n.at = Date.now();
+  DB.saveData(d);
+  closeMindMapUI();
+  renderNotes();
+  toast('Mind map saved.');
+}
+
+/** A tiny static SVG so a mind-map note shows something on its card. */
+function renderMindMapThumbnail(mm) {
+  if (!mm || !mm.nodes || !mm.nodes.length) {
+    return `<span style="font-size:.76rem;color:var(--text-tertiary);">Empty — open to add nodes.</span>`;
+  }
+  const xs = mm.nodes.map(n => n.x), ys = mm.nodes.map(n => n.y);
+  const minX = Math.min(...xs) - 20, maxX = Math.max(...xs) + 20;
+  const minY = Math.min(...ys) - 20, maxY = Math.max(...ys) + 20;
+  const edges = (mm.edges || []).map(([a, b]) => {
+    const na = mm.nodes.find(n => n.id === a), nb = mm.nodes.find(n => n.id === b);
+    return na && nb ? `<line x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}" stroke="var(--accent-gold)" stroke-width="1" opacity=".5"/>` : '';
+  }).join('');
+  const nodes = mm.nodes.map(n => `<circle cx="${n.x}" cy="${n.y}" r="6" fill="var(--accent-gold)" opacity=".8"/>`).join('');
+  return `<svg viewBox="${minX} ${minY} ${maxX - minX} ${maxY - minY}" style="width:100%;height:70px;">${edges}${nodes}</svg>
+    <span style="font-size:.7rem;color:var(--text-tertiary);">${mm.nodes.length} node${mm.nodes.length === 1 ? '' : 's'} · ${(mm.edges || []).length} link${(mm.edges || []).length === 1 ? '' : 's'}</span>`;
+}
+
+/* ---------------------------------------------------------------------------
+   16.5 DATABASE — real analytics: accounts, active now, signups/activity charts
+--------------------------------------------------------------------------- */
+
+/** Local fallback stats — used whenever there's no backend connected. Not
+    "site-wide" (a browser only knows what's on this device), but real and
+    honestly labeled as such, rather than showing fabricated numbers. */
+function computeLocalAnalytics() {
+  const users = Object.values(DB.users());
+  const projects = Object.values(DB.data().projects);
+  const activeCutoff = Date.now() - 5 * 60000;
+
+  const byDay = (timestamps, days) => {
+    const counts = {};
+    timestamps.forEach(t => {
+      const day = new Date(t).toISOString().slice(0, 10);
+      counts[day] = (counts[day] || 0) + 1;
+    });
+    const out = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      out.push({ date: d, count: counts[d] || 0 });
+    }
+    return out;
+  };
+
+  const allNotifs = Object.values(DB.data().notifications || {}).flat();
+
+  return {
+    source: 'local',
+    totalUsers: users.length,
+    activeUsers: users.filter(u => u.lastSeen >= activeCutoff).length,
+    totalProjects: projects.length,
+    deployedSites: projects.filter(p => p.deployedUrl).length,
+    signupsByDay: byDay(users.map(u => u.createdAt), 14),
+    activityByDay: byDay(allNotifs.map(n => n.at), 7),
+  };
+}
+
+async function fetchRemoteAnalytics() {
+  if (!API_BASE || !me() || !DB.backendToken(me().email)) return null;
+  const r = await DB.server('/api/analytics/summary');
+  if (!r) return null;
+  return { ...r, source: 'remote' };
+}
+
+/** Build an SVG <path> for a rise-and-fall line chart from a list of numbers. */
+function buildLineChartPath(values, width, height, pad = 6) {
+  if (!values.length) return { path: '', points: [] };
+  const max = Math.max(1, ...values);
+  const stepX = values.length > 1 ? (width - pad * 2) / (values.length - 1) : 0;
+  const points = values.map((v, i) => ({
+    x: pad + i * stepX,
+    y: height - pad - (v / max) * (height - pad * 2),
+  }));
+  const path = points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+  return { path, points, max };
+}
+
+/** Build simple rects for a bar chart from a list of numbers. */
+function buildBarChartBars(values, width, height, pad = 6, gap = 6) {
+  if (!values.length) return [];
+  const max = Math.max(1, ...values);
+  const barW = (width - pad * 2 - gap * (values.length - 1)) / values.length;
+  return values.map((v, i) => {
+    const h = (v / max) * (height - pad * 2);
+    return { x: pad + i * (barW + gap), y: height - pad - h, w: Math.max(2, barW), h: Math.max(1, h), value: v };
+  });
+}
+
+function renderLineChartSvg(rows, elId, totalElId) {
+  const values = rows.map(r => r.count);
+  const total = values.reduce((a, b) => a + b, 0);
+  const totalEl = $(totalElId);
+  if (totalEl) totalEl.textContent = total + ' total';
+
+  const W = 560, H = 110;
+  const { path, points } = buildLineChartPath(values, W, H);
+  const dots = points.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.5" fill="var(--accent-gold)"/>`).join('');
+  const area = path ? `${path} L${points[points.length - 1].x.toFixed(1)},${H - 6} L${points[0].x.toFixed(1)},${H - 6} Z` : '';
+
+  const box = $(elId);
+  if (!box) return;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="db-chart-svg" preserveAspectRatio="none">
+    ${area ? `<path d="${area}" fill="url(#dbLineGrad)" opacity="0.25"/>` : ''}
+    <defs><linearGradient id="dbLineGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--accent-gold)"/><stop offset="100%" stop-color="var(--accent-gold)" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${path ? `<path d="${path}" fill="none" stroke="var(--accent-gold)" stroke-width="2"/>` : ''}
+    ${dots}
+  </svg>
+  <div class="db-chart-labels">${rows.map(r => `<span>${r.date.slice(5)}</span>`).join('')}</div>`;
+}
+
+function renderBarChartSvg(rows, elId, totalElId) {
+  const values = rows.map(r => r.count);
+  const total = values.reduce((a, b) => a + b, 0);
+  const totalEl = $(totalElId);
+  if (totalEl) totalEl.textContent = total + ' total';
+
+  const W = 560, H = 110;
+  const bars = buildBarChartBars(values, W, H);
+  const box = $(elId);
+  if (!box) return;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="db-chart-svg" preserveAspectRatio="none">
+    ${bars.map(b => `<rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}" rx="2" fill="var(--accent-blue)" opacity="0.85"/>`).join('')}
+  </svg>
+  <div class="db-chart-labels">${rows.map(r => `<span>${r.date.slice(5)}</span>`).join('')}</div>`;
+}
+
+async function renderDbAnalytics() {
+  const note = $('dbAnalyticsNote');
+  const remote = await fetchRemoteAnalytics();
+  const data = remote || computeLocalAnalytics();
+
+  if (note) {
+    note.className = 'cloud-note ' + (remote ? 'is-ready' : 'is-off');
+    note.innerHTML = remote
+      ? `<b>Live from Knight Cloud.</b> These numbers cover everyone signed in through your deployed backend.`
+      : `<b>Local device only.</b> No backend connected, so this only reflects accounts and activity on this browser. Connect <code>API_BASE</code> for real site-wide numbers.`;
+  }
+
+  const stats = $('dbStatsRow');
+  if (stats) {
+    stats.innerHTML = [
+      ['Accounts', data.totalUsers], ['Active now', data.activeUsers],
+      ['Projects', data.totalProjects], ['Deployed', data.deployedSites],
+    ].map(([label, val]) => `<div class="proj-stat"><div class="proj-stat-val">${val}</div><div class="proj-stat-label">${label}</div></div>`).join('');
+  }
+
+  renderLineChartSvg(data.signupsByDay, 'dbSignupChart', 'dbSignupTotal');
+  renderBarChartSvg(data.activityByDay, 'dbActivityChart', 'dbActivityTotal');
+
+  const feed = $('dbActivityFeed');
+  if (feed) {
+    const myFeed = (DB.data().notifications[myId()] || []).slice(0, 6);
+    feed.innerHTML = myFeed.length
+      ? myFeed.map(n => `<div class="proj-activity-row"><span class="proj-activity-dot"></span>
+          <span class="proj-activity-text">${esc(n.title)} — ${esc(n.desc)}</span>
+          <span class="proj-activity-time">${timeAgo(n.at)}</span></div>`).join('')
+      : `<p style="font-size:.8rem;color:var(--text-tertiary);">No activity recorded yet.</p>`;
+  }
+}
+
 
 /* ---------------------------------------------------------------------------
    17. TERMINAL (real execution via Piston) + MASTERING TERMINAL
@@ -3249,6 +3658,8 @@ function renderCmdk() {
 let camStream = null;
 
 function renderSettings() {
+  renderCloudConfigStatus();
+  testCloudConnectionUI();
   const p = DB.prefs();
   $('defaultPageSelect').value = p.defaultPage || '';
   $('settingsErrorSoundToggle').checked = p.errorSound !== false;
@@ -3820,7 +4231,69 @@ function inlineProject(p, entry, log = []) {
     })();
   <\/script>`;
 
-  return html.includes('<head>') ? html.replace('<head>', '<head>' + bridge) : bridge + html;
+  const withBridge = html.includes('<head>') ? html.replace('<head>', '<head>' + bridge) : bridge + html;
+  return sanitizeUntrustedHtml(withBridge);
+}
+
+/* ---------------------------------------------------------------------------
+   PREVIEW SECURITY
+
+   Untrusted content (uploaded files, imported repos, another contributor's
+   edits) gets bundled and run inside <iframe sandbox="allow-scripts
+   allow-forms allow-modals[ allow-popups]">. Two flags are deliberately never
+   granted, and that omission is what actually enforces the isolation:
+
+     - allow-same-origin is never set, so the iframe's content is treated as
+       a unique, opaque origin distinct from this page. Per the browser's
+       same-origin policy, that means the preview's own scripts cannot read
+       this page's localStorage (accounts, sessions, backend tokens), cannot
+       read document.cookie, and cannot reach into window.parent's DOM —
+       even though window.parent itself is a reachable JS reference, any
+       attempt to touch its .document throws a SecurityError.
+     - allow-top-navigation is never set, so a script or a plain
+       <a target="_top">/<form target="_top"> inside the preview cannot
+       navigate this page away or hijack the outer window — the browser
+       blocks the navigation attempt outright.
+
+   The one bridge that IS allowed on purpose is postMessage() (used above to
+   pipe the preview's console.log back into Knight's console panel) —
+   postMessage cannot read or write the parent's DOM or storage; it only
+   delivers a message Knight's own listener chooses to read.
+
+   sanitizeUntrustedHtml() below is defense-in-depth on top of that sandbox,
+   not a replacement for it: it strips a couple of things that are merely
+   annoying rather than dangerous under this sandbox (a <base> tag that could
+   redirect relative links, a meta-refresh loop) and hardens target="_blank"
+   links against reverse-tabnabbing (a still-real risk against the *new* tab
+   they open, independent of the iframe sandbox).
+--------------------------------------------------------------------------- */
+function sanitizeUntrustedHtml(html) {
+  html = html
+    // A <base> tag could otherwise redirect every relative link/asset in ways
+    // that are confusing to debug and serve no purpose in a bundled preview.
+    .replace(/<base\b[^>]*>/gi, '<!-- base tag stripped for preview safety -->')
+    // A meta-refresh can create a confusing redirect loop inside the sandbox
+    // (it cannot escape the iframe, but it's still unwanted behavior).
+    .replace(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, '<!-- meta-refresh stripped for preview safety -->')
+    // Even though the sandbox already blocks _top/_parent navigation outright,
+    // rewriting them closes the gap defensively and avoids noisy console errors.
+    .replace(/target=["'](_top|_parent)["']/gi, 'target="_self"');
+
+  // A target="_blank" link the preview opens gets window.opener back to the
+  // (sandboxed, opaque-origin) iframe unless noopener is set — harden it,
+  // since the opened tab is a real, non-sandboxed browsing context. Walked
+  // per-tag rather than one regex, so a stray rel= earlier in the tag can't
+  // confuse the match.
+  html = html.replace(/<a\b[^>]*>/gi, (tag) => {
+    if (!/target=["']_blank["']/i.test(tag)) return tag;
+    if (/\brel=["'][^"']*\b(noopener|noreferrer)\b/i.test(tag)) return tag;
+    if (/\brel=["']/i.test(tag)) {
+      return tag.replace(/\brel=["']([^"']*)["']/i, (relTag, existing) => `rel="${existing} noopener noreferrer"`);
+    }
+    return tag.slice(0, -1) + ' rel="noopener noreferrer">';
+  });
+
+  return html;
 }
 
 function fallbackIndex(p) {
@@ -4329,7 +4802,62 @@ async function renderStorageManager() {
    27. BOOT
 --------------------------------------------------------------------------- */
 
+/** Read a previously-saved backend URL out of prefs into the live config
+    variables. Called at boot, and again the instant Settings saves a change —
+    no code edit, no reload, no redeploying this file required. */
+function loadCloudConfig() {
+  const p = DB.prefs();
+  API_BASE = (p.apiBase || '').trim().replace(/\/+$/, '') || null;
+  WS_BASE = (p.wsBase || '').trim().replace(/\/+$/, '') || null;
+  WS_SERVER_KEY = (p.wsServerKey || '').trim() || 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';
+}
+
+async function saveCloudConfigUI() {
+  const apiBase = ($('cloudApiBaseInput').value || '').trim();
+  const wsBase = ($('cloudWsBaseInput').value || '').trim();
+  const wsKey = ($('cloudWsKeyInput').value || '').trim();
+
+  if (apiBase && !/^https?:\/\//i.test(apiBase)) { toast('API URL must start with http:// or https://', true); return; }
+  if (wsBase && !/^wss?:\/\//i.test(wsBase)) { toast('WebSocket URL must start with ws:// or wss://', true); return; }
+
+  const p = DB.prefs();
+  p.apiBase = apiBase; p.wsBase = wsBase; p.wsServerKey = wsKey;
+  DB.savePrefs(p);
+  loadCloudConfig();   // takes effect immediately, live, in this tab
+
+  // reconnect the socket under the new address if one was already open
+  if (socket) { try { socket.close(); } catch {} socket = null; }
+
+  renderCloudConfigStatus();
+  toast('Cloud connection saved.');
+
+  if (API_BASE) await testCloudConnectionUI();
+}
+
+async function testCloudConnectionUI() {
+  const status = $('cloudConnectionStatus');
+  if (!API_BASE) { if (status) status.textContent = 'No API URL set — running fully local.'; return; }
+  if (status) status.textContent = 'Checking ' + API_BASE + '…';
+
+  const result = await DB.server('/api/health');
+  if (status) {
+    status.textContent = result
+      ? '✅ Backend reachable — ' + (result.status || 'up')
+      : '❌ Could not reach that backend. Check the URL, and that it is actually running.';
+    status.style.color = result ? 'var(--accent-green)' : 'var(--accent-coral)';
+  }
+}
+
+function renderCloudConfigStatus() {
+  const apiInput = $('cloudApiBaseInput'), wsInput = $('cloudWsBaseInput'), keyInput = $('cloudWsKeyInput');
+  const p = DB.prefs();
+  if (apiInput) apiInput.value = p.apiBase || '';
+  if (wsInput) wsInput.value = p.wsBase || '';
+  if (keyInput) keyInput.value = p.wsServerKey || '';
+}
+
 function boot() {
+  loadCloudConfig();
   // Auth tabs
   $('tab-signin').onclick = () => setAuthMode('signin');
   $('tab-signup').onclick = () => setAuthMode('signup');
@@ -4473,7 +5001,9 @@ Object.assign(window, {
   reviewChange, saveDeployedUrlUI, attachLocationUI,
   setStudioTab, pickStudioCategory, toggleStar, openReviewPrompt, startVoiceSearchUI,
   openChatWith, sendChatMessageUI,
-  createNoteUI, updateNote, deleteNote, setNotesTagFilter, toggleNotePin, duplicateNoteUI, updateNoteTags,
+  createNoteUI, deleteNote, setNotesTagFilter, toggleNotePin, duplicateNoteUI, updateNoteTags,
+  toggleNoteComplete, openNoteForEdit, saveNoteEditorUI, toggleNoteDictation,
+  createMindMapUI, closeMindMapUI, addMindMapNode, connectMindMapSelected, deleteMindMapSelected, saveMindMapUI,
   runCodeUI, startMemoryGame, flipCard,
   addPasskeyUI, removePasskey,
   requestCameraAccessUI, saveCameraSettingsUI, stopCameraPreviewUI, resetLocalPrefsUI,
@@ -4489,6 +5019,7 @@ Object.assign(window, {
   openPreviewFor, saveDeployUrlFor, handleNewProjectFiles,
   loadTermFile, restoreTermRun, forkProjectUI, openVersionDiffUI, scanVersionsForErrorsUI,
   openTerminalWorkspace, setTermWorkspaceTab, runTermDebugScan, runNetworkCheckUI,
+  saveCloudConfigUI, testCloudConnectionUI,
   openGithubImportUI, importGithubRepoUI,
   setNotifFilter, markAllNotificationsRead, deleteNotification,
 });

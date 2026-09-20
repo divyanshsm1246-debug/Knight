@@ -756,7 +756,7 @@
               <span>Live Preview</span>
               <span id="termFpsBar" class="term-fps-bar" title="Live rendering FPS">-- fps</span>
             </div>
-            <iframe id="termMiniFrame" class="term-mini-frame" title="Mini preview" sandbox="allow-scripts allow-forms allow-modals"></iframe>
+            <iframe id="termMiniFrame" class="term-mini-frame" title="Mini preview" referrerpolicy="no-referrer" sandbox="allow-scripts allow-forms allow-modals"></iframe>
             <p id="termMiniHint" class="term-mini-hint">This project has no website to preview yet.</p>
           </div>
           <div class="run-bar" style="margin-top:16px;">
@@ -1027,6 +1027,31 @@
     <div class="page-title">Settings &amp; Guides</div>
   </div>
 
+  <!-- ===== Cloud Connection — the ONE place that turns Knight multiplayer ===== -->
+  <div class="cloud-config-card">
+    <h3 style="margin-bottom:4px;">Cloud Connection</h3>
+    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">
+      Paste in your deployed backend's URLs here — no code edits, no redeploy. This takes effect immediately, in this tab, the moment you hit Save.
+    </p>
+    <div class="field">
+      <label class="font-mono">Java Backend URL (API_BASE)</label>
+      <input type="text" id="cloudApiBaseInput" placeholder="https://your-app.onrender.com">
+    </div>
+    <div class="field">
+      <label class="font-mono">WebSocket Server URL (WS_BASE)</label>
+      <input type="text" id="cloudWsBaseInput" placeholder="wss://your-ws-server.onrender.com">
+    </div>
+    <div class="field">
+      <label class="font-mono">WebSocket Server Key</label>
+      <input type="text" id="cloudWsKeyInput" placeholder="must match SERVER_KEY in websocket-server.js">
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <button class="submit-btn" style="width:auto; padding:11px 24px;" onclick="saveCloudConfigUI()">Save &amp; Connect</button>
+      <button class="nav-cta" onclick="testCloudConnectionUI()">Test Connection</button>
+      <span id="cloudConnectionStatus" style="font-size:.78rem; color:var(--text-tertiary);"></span>
+    </div>
+  </div>
+
   <div class="shortcut-category-label">Device Optimization</div>
   <p style="font-size:.85rem; color:var(--text-secondary); max-width:640px; margin-bottom:14px;">Pick your active environment — this drives real shortcut mappings, focus states, and layout density across the site.</p>
   <div class="device-grid" id="settingsDeviceGrid" style="max-width:640px; margin-bottom:8px;">
@@ -1214,7 +1239,8 @@
 
       <div class="preview-stage">
         <iframe id="previewFrame" title="Project preview"
-          sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
+          referrerpolicy="no-referrer"
+      sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
       </div>
 
       <div class="shortcut-category-label">Console</div>

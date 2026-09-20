@@ -1136,3 +1136,97 @@ body.device-smartphone .server-toggle{ right:14px; bottom:14px; padding:10px 14p
 .term-ws-tab.active{ color:var(--accent-gold); border-bottom-color:var(--accent-gold); }
 .term-ws-panel{ display:none; animation:projFade .18s ease; }
 .term-ws-panel.active{ display:block; }
+
+/* ============================================================
+   DATA-BASE: TWO-COLUMN LAYOUT, QUEST CARDS, MIND MAPS, CHARTS
+   ============================================================ */
+
+.db-columns{ display:flex; gap:32px; align-items:flex-start; }
+.db-col{ flex:1; min-width:0; }
+.db-col-title{ font-size:1.05rem; font-weight:700; margin-bottom:4px; }
+@media (max-width:900px){ .db-columns{ flex-direction:column; } }
+
+/* ---------- quest cards ---------- */
+.quest-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; }
+.quest-card{
+  cursor:pointer; animation:questFloat 4.5s ease-in-out infinite;
+}
+.quest-card:hover{ animation-play-state:paused; transform:translateY(-3px); border-color:var(--panel-border-hover); }
+@keyframes questFloat{
+  0%,100%{ transform:translateY(0); }
+  50%{ transform:translateY(-4px); }
+}
+.quest-card.is-complete{ opacity:.55; }
+.quest-card.is-complete .db-card-head h3{ text-decoration:line-through; }
+.quest-check{
+  width:20px; height:20px; flex-shrink:0; border-radius:6px; margin-top:1px;
+  border:1.5px solid var(--panel-border-hover); display:flex; align-items:center; justify-content:center;
+  color:transparent; cursor:pointer; transition:all .18s;
+}
+.quest-check svg{ width:12px; height:12px; }
+.quest-check.checked{ background:var(--accent-green); border-color:var(--accent-green); color:#0c1512; }
+.quest-type-tag{
+  display:inline-block; font-size:.66rem; font-family:'JetBrains Mono',monospace;
+  color:var(--accent-gold); background:rgba(243,198,35,.1); border:1px solid rgba(243,198,35,.25);
+  padding:2px 8px; border-radius:8px; margin-bottom:6px; width:fit-content;
+}
+.quest-body{ font-size:.82rem; color:var(--text-secondary); line-height:1.5; margin-bottom:4px; }
+.quest-source{ font-size:.72rem; color:var(--text-tertiary); }
+.quest-mindmap-preview{ margin-bottom:4px; }
+
+/* ---------- note editor modal ---------- */
+.note-editor-title{
+  width:100%; padding:10px 14px; margin-bottom:12px; font-size:1rem; font-weight:600;
+  background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:10px; color:var(--text-primary);
+}
+.mic-btn{
+  position:absolute; right:10px; bottom:10px; width:32px; height:32px; border-radius:50%;
+  background:rgba(255,255,255,.06); border:1px solid var(--panel-border); color:var(--text-secondary);
+  display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .18s;
+}
+.mic-btn:hover{ color:var(--text-primary); border-color:var(--panel-border-hover); }
+.mic-btn.listening{ background:rgba(217,108,91,.16); border-color:var(--accent-coral); color:var(--accent-coral); animation:micPulse 1.2s infinite; }
+@keyframes micPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(217,108,91,.5); } 50%{ box-shadow:0 0 0 6px rgba(217,108,91,0); } }
+
+/* ---------- mind map editor ---------- */
+.mindmap-toolbar{ display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+.mindmap-canvas{
+  width:100%; height:340px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border);
+  border-radius:14px; user-select:none;
+}
+.mindmap-node text{ pointer-events:none; }
+.mindmap-node.selected circle{ filter:drop-shadow(0 0 6px rgba(243,198,35,.5)); }
+
+/* ---------- database charts ---------- */
+.db-chart-card{
+  background:rgba(255,255,255,.02); border:1px solid var(--panel-border); border-radius:14px;
+  padding:14px 16px; margin-bottom:16px;
+}
+.db-chart-head{
+  display:flex; justify-content:space-between; align-items:center;
+  font-size:.78rem; color:var(--text-secondary); margin-bottom:8px;
+}
+.db-chart-total{ font-family:'JetBrains Mono',monospace; color:var(--accent-gold); font-size:.74rem; }
+.db-chart-svg-wrap{ width:100%; }
+.db-chart-svg{ width:100%; height:90px; display:block; }
+.db-chart-labels{
+  display:flex; justify-content:space-between; font-size:.6rem; color:var(--text-tertiary);
+  font-family:'JetBrains Mono',monospace; margin-top:4px; padding:0 2px;
+}
+
+/* ============================================================
+   CLOUD CONNECTION PANEL
+   ============================================================ */
+
+.cloud-config-card{
+  max-width:640px; margin-bottom:30px; padding:20px;
+  border-radius:16px; background:rgba(243,198,35,.04);
+  border:1px solid rgba(243,198,35,.2);
+}
+.cloud-config-card input[type="text"]{
+  width:100%; padding:10px 14px; background:rgba(0,0,0,.3);
+  border:1px solid var(--panel-border); border-radius:10px; color:var(--text-primary);
+  font-size:.82rem; font-family:'JetBrains Mono',monospace;
+}
+.cloud-config-card .field{ margin-bottom:14px; }
+.cloud-config-card label{ display:block; font-size:.72rem; color:var(--text-tertiary); margin-bottom:6px; text-transform:uppercase; letter-spacing:.06em; }
