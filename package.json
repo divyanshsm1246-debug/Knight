@@ -1,0 +1,15 @@
+{
+  "name": "knight-websocket-server",
+  "version": "1.0.0",
+  "description": "Knight's real-time layer — chat, presence, and live file-edit relay.",
+  "main": "websocket-server.js",
+  "scripts": {
+    "start": "node websocket-server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

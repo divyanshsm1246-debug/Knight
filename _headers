@@ -1,0 +1,16 @@
+# Cloudflare Pages reads this file automatically (Netlify uses the same format).
+# Put it in the same folder as index.html.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(self), microphone=(self), camera=(self)
+
+# Don't let browsers or the CDN cache the two files you edit most, so a
+# redeploy shows up immediately instead of after a stale-cache delay.
+/index.html
+  Cache-Control: no-cache
+/config.js
+  Cache-Control: no-cache
+/script.js
+  Cache-Control: no-cache

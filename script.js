@@ -150,7 +150,14 @@ const DB = {
       const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
       if (token && !headers.Authorization) headers.Authorization = 'Bearer ' + token;
 
-      const res = await fetch(API_BASE + path, { ...options, headers });
+      // A free-tier host that has gone to sleep can take 30-60s to wake; give
+      // normal calls a sane ceiling and let slow ones (deploys) ask for more.
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), options.timeoutMs || 25000) : null;
+      let res;
+      try {
+        res = await fetch(API_BASE + path, { ...options, headers, signal: ctrl ? ctrl.signal : undefined });
+      } finally { if (timer) clearTimeout(timer); }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       this.serverUp = true;
       return options.rawResponse ? res : await res.json();
@@ -388,6 +395,8 @@ async function handleAuthSubmit(e) {
 
 function signOutUI() {
   stopPreview();
+  disconnectAbly();
+  if (socket) { try { socket.close(); } catch {} socket = null; }
   document.body.classList.remove('is-authed');
   clearSession();
   location.hash = '';
@@ -740,6 +749,7 @@ function closeModal(id) { const m = $(id); if (m) m.classList.remove('active'); 
 function enterApp(user, { fresh = false } = {}) {
   CURRENT = user;
   document.body.classList.add('is-authed');
+  connectAbly();
 
   // Touch lastSeen
   const users = DB.users();
@@ -1623,7 +1633,8 @@ function renderProjectDeployPanel(p, canDeploy) {
     : !canDeploy
     ? `<span style="font-size:.8rem;color:var(--text-tertiary);">Only owners and editors can deploy this project.</span>`
     : `<button class="nav-cta" onclick="exportProjectUI('${p.id}')">Build .html</button>
-       <button class="nav-cta ${API_BASE ? 'btn-golden' : ''}" onclick="deployProjectToCloudUI('${p.id}')">☁ Deploy to Cloud</button>`;
+       <button class="nav-cta ${API_BASE ? 'btn-golden' : ''}" onclick="deployProjectToCloudUI('${p.id}')">☁ Deploy to Cloud</button>
+       ${p.deployedUrl ? `<button class="nav-cta" style="color:var(--accent-coral);" onclick="deleteDeployedSiteUI('${p.id}')">🗑 Delete Site</button>` : ''}`;
 }
 
 function renderProjectFiles(p, role) {
@@ -2051,7 +2062,7 @@ function studioCard(p) {
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
-      <button class="star-toggle ${starred ? 'starred' : ''}" onclick="event.stopPropagation(); toggleStar('${p.id}', event)">★ ${p.stars || 0}</button>
+      <button class="star-toggle ${starred ? 'starred' : ''}" title="${starred ? 'Unstar' : 'Star this project'}" onclick="event.stopPropagation(); toggleStar('${p.id}', event)"><svg viewBox="0 0 24 24"><polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6"/></svg>${p.stars || 0}</button>
       <button class="nav-cta" style="font-size:.72rem;padding:6px 10px;" onclick="event.stopPropagation(); openReviewPrompt('${p.id}')">Review (${(p.reviews || []).length})</button>
       ${hasHtml ? `<button class="nav-cta btn-golden" style="font-size:.72rem;padding:6px 10px;" onclick="event.stopPropagation(); openProjectBuild('${p.id}')">▶ Preview</button>` : ''}
     </div>
@@ -2139,6 +2150,91 @@ function startVoiceSearchUI() {
 let WS_BASE = null;
 let WS_SERVER_KEY = 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';
 
+/* ---------------------------------------------------------------------------
+   14.4 ABLY — hosted real-time chat & presence, no server to deploy.
+   This is the preferred transport whenever a key is configured: it's a real
+   cloud service, so two different people on two different devices see each
+   other instantly with nothing self-hosted. The custom WS_BASE socket below
+   remains as a fallback for anyone who'd rather self-host that piece.
+   Channel naming: "knight:dm:<threadKey>" for chat, "knight:presence" for
+   global online status.
+--------------------------------------------------------------------------- */
+
+let ABLY_KEY = null;
+let ablyClient = null;
+let ablyChatChannel = null;
+let ablyPresenceChannel = null;
+
+function ablyAvailable() { return !!(ABLY_KEY && typeof Ably !== 'undefined'); }
+
+function connectAbly() {
+  if (!ablyAvailable() || !me()) return null;
+  if (ablyClient && ablyClient.connection.state !== 'failed' && ablyClient.connection.state !== 'closed') return ablyClient;
+
+  try {
+    ablyClient = new Ably.Realtime({ key: ABLY_KEY, clientId: myId() });
+  } catch (e) {
+    console.warn('[Knight] Ably failed to start', e);
+    ablyClient = null;
+    return null;
+  }
+
+  ablyClient.connection.on('connected', () => { paintCommServerPill(); enterAblyPresence(); });
+  ablyClient.connection.on(['disconnected', 'suspended', 'failed', 'closed'], () => paintCommServerPill());
+  return ablyClient;
+}
+
+function disconnectAbly() {
+  if (ablyClient) { try { ablyClient.close(); } catch {} }
+  ablyClient = null; ablyChatChannel = null; ablyPresenceChannel = null;
+}
+
+function ablyReady() { return !!(ablyClient && ablyClient.connection.state === 'connected'); }
+
+/** Switch which DM thread's Ably channel this client is subscribed to. */
+function joinAblyChatRoom(room) {
+  const client = connectAbly();
+  if (!client) return;
+  if (ablyChatChannel && ablyChatChannel.name === 'knight:dm:' + room) return;
+
+  if (ablyChatChannel) ablyChatChannel.unsubscribe();
+  ablyChatChannel = client.channels.get('knight:dm:' + room);
+  ablyChatChannel.subscribe('chat', (msg) => {
+    handleSocketMessage({
+      type: 'chat', room, from: msg.data.from, username: msg.data.username,
+      text: msg.data.text, at: msg.timestamp,
+    });
+  });
+  ablyChatChannel.history({ limit: 50 }, (err, page) => {
+    if (err || !page) return;
+    const messages = page.items.reverse().map(m => ({ from: m.data.from, text: m.data.text, at: m.timestamp }));
+    handleSocketMessage({ type: 'history', room, messages });
+  });
+}
+
+function sendAblyChat(room, text) {
+  if (!ablyChatChannel || ablyChatChannel.name !== 'knight:dm:' + room) return false;
+  ablyChatChannel.publish('chat', { from: myId(), username: me().username, text });
+  return true;
+}
+
+/** Global "who's online right now" — powers the presence dot on the Comm page. */
+function enterAblyPresence() {
+  if (!ablyClient || !me()) return;
+  ablyPresenceChannel = ablyClient.channels.get('knight:presence');
+  ablyPresenceChannel.presence.enter({ username: me().username });
+  ablyPresenceChannel.presence.subscribe(() => renderCommPage());
+}
+
+async function ablyOnlineUserIds() {
+  if (!ablyPresenceChannel) return [];
+  return new Promise((resolve) => {
+    ablyPresenceChannel.presence.get((err, members) => {
+      resolve(err || !members ? [] : members.map(m => m.clientId));
+    });
+  });
+}
+
 let socket = null;
 let socketRoom = null;
 let socketReconnectTimer = null;
@@ -2182,8 +2278,9 @@ function joinSocketRoom(room) {
 function paintCommServerPill() {
   const pill = $('commServerPill');
   if (!pill) return;
-  const live = socketReady();
-  pill.textContent = live ? 'live — real-time' : (WS_BASE ? 'connecting…' : 'offline (device-only)');
+  const live = ablyReady() || socketReady();
+  const via = ablyReady() ? 'Ably' : socketReady() ? 'self-hosted' : null;
+  pill.textContent = live ? 'live — real-time (' + via + ')' : ((ABLY_KEY || WS_BASE) ? 'connecting…' : 'offline (device-only)');
   pill.classList.toggle('is-on', live);
 }
 
@@ -2249,15 +2346,20 @@ let chatPeerId = null;
 
 function threadKey(a, b) { return [a, b].sort().join('::'); }
 
-function renderCommPage() {
+async function renderCommPage() {
   paintCommServerPill();
   const friends = (me().friends || []).map(userById).filter(Boolean);
+  const onlineIds = ablyReady() ? await ablyOnlineUserIds() : [];
+
   $('commFriendsList').innerHTML = friends.length
-    ? friends.map(f => `<div class="friend-row" style="cursor:pointer;" onclick="openChatWith('${f.id}')">
+    ? friends.map(f => {
+        const online = onlineIds.includes(f.id) || Date.now() - f.lastSeen < 300000;
+        return `<div class="friend-row" style="cursor:pointer;" onclick="openChatWith('${f.id}')">
         <div style="display:flex;align-items:center;gap:8px;">
-          <span class="presence-dot ${Date.now() - f.lastSeen < 300000 ? 'online' : ''}"></span>
+          <span class="presence-dot ${online ? 'online' : ''}"></span>
           <b style="font-size:.85rem;">${esc(f.username)}</b>
-        </div></div>`).join('')
+        </div></div>`;
+      }).join('')
     : `<p style="font-size:.82rem;color:var(--text-tertiary);">Add friends from the Social page to start chatting.</p>`;
   if (chatPeerId) renderThread();
 }
@@ -2267,7 +2369,9 @@ function openChatWith(userId) {
   openKnightPage('commPage');
   const u = userById(userId);
   $('commThreadLabel').textContent = u ? 'Chat with ' + u.username : 'Chat';
-  joinSocketRoom(threadKey(myId(), userId));
+  const room = threadKey(myId(), userId);
+  if (ablyAvailable()) joinAblyChatRoom(room);
+  else joinSocketRoom(room);
   renderThread();
 }
 
@@ -2294,9 +2398,10 @@ function sendChatMessageUI() {
   const key = threadKey(myId(), chatPeerId);
   const at = Date.now();
 
-  if (socketReady() && socketRoom === key) {
-    // Real multiplayer path: the server broadcasts it back to us too, which
-    // is what actually adds it to the thread — no local double-write.
+  if (ablyReady() && sendAblyChat(key, text)) {
+    // Ably echoes it back to us too (we're subscribed to our own channel),
+    // which is what actually adds it to the thread — no local double-write.
+  } else if (socketReady() && socketRoom === key) {
     socket.send(JSON.stringify({ type: 'chat', room: key, text }));
   } else {
     // Offline/local path — same as before, works across tabs on this device.
@@ -3066,6 +3171,7 @@ function loadTermFile(name) {
 let termFpsHandle = null;
 
 function loadTermMiniPreview(p) {
+  clearTermRuntimeLog();
   const frame = $('termMiniFrame');
   const hint = $('termMiniHint');
   const serverHint = $('termServerHint');
@@ -3210,6 +3316,41 @@ function findCleanestVersion(p) {
 }
 
 /* ----- Debug tab: scan the live/current files, not just saved versions --- */
+
+/* ----- Live runtime console for the Debug tab — real execution output ---- */
+
+let termRuntimeLog = [];   // { kind, text, at } — a rolling buffer, newest last
+
+function recordTermRuntimeLog(kind, text) {
+  termRuntimeLog.push({ kind, text, at: Date.now() });
+  if (termRuntimeLog.length > 200) termRuntimeLog.shift();
+  renderTermRuntimeConsole();
+}
+
+function renderTermRuntimeConsole() {
+  const box = $('termRuntimeConsole');
+  const status = $('termRuntimeStatus');
+  if (!box) return;
+
+  const errorCount = termRuntimeLog.filter(l => l.kind === 'error').length;
+  if (status) {
+    status.textContent = !termRuntimeLog.length
+      ? 'No preview running yet.'
+      : errorCount
+        ? errorCount + ' runtime error' + (errorCount === 1 ? '' : 's') + ' captured'
+        : 'Running clean — no errors logged.';
+  }
+
+  box.textContent = termRuntimeLog.length
+    ? termRuntimeLog.map(l => (l.kind === 'error' ? '! ' : l.kind === 'warn' ? '~ ' : '· ') + l.text).join('\n')
+    : 'Nothing logged yet.';
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearTermRuntimeLog() {
+  termRuntimeLog = [];
+  renderTermRuntimeConsole();
+}
 
 function runTermDebugScan() {
   const p = DB.data().projects[terminalProjectId];
@@ -3471,6 +3612,7 @@ function renderLinkDeployer() {
                      <button class="nav-cta" onclick="exportProjectUI('${p.id}')">Build .html</button>
                      <button class="nav-cta ${API_BASE ? 'btn-golden' : ''}" onclick="deployProjectToCloudUI('${p.id}')"
                        title="${API_BASE ? 'Deploy a real live link' : 'Configure API_BASE first — see the note above'}">☁ Deploy to Cloud</button>` : ''}
+            ${p.deployedUrl ? `<button class="nav-cta" style="color:var(--accent-coral);" onclick="deleteDeployedSiteUI('${p.id}')">🗑 Delete Site</button>` : ''}
             <button class="nav-cta" onclick="openProjectDetail('${p.id}')">Open project</button>
           </div>
           <div class="friend-add-row">
@@ -3622,6 +3764,7 @@ const CMDS = [
   { label: 'Arcade',           hint: 'game',     run: () => openKnightPage('arcadePage') },
   { label: 'Game Booster',     hint: 'perf',     run: () => openKnightPage('gameBoosterPage') },
   { label: 'Settings',         hint: 'prefs',    run: () => openKnightPage('settingsPage') },
+  { label: 'Send Feedback',    hint: 'bug idea', run: openFeedbackUI },
   { label: 'My Profile',       hint: 'account',  run: () => openModal('profileModal') },
   { label: 'Sign Out',         hint: 'log out',  run: signOutUI },
 ];
@@ -3658,6 +3801,7 @@ function renderCmdk() {
 let camStream = null;
 
 function renderSettings() {
+  renderFeedbackHistory();
   renderCloudConfigStatus();
   testCloudConnectionUI();
   const p = DB.prefs();
@@ -4148,6 +4292,7 @@ function openPreview(projectId) {
 
 /** Assemble the project into one document and hand it to the iframe. */
 function runPreview() {
+  clearTermRuntimeLog();
   const p = DB.data().projects[server.projectId];
   const frame = $('previewFrame');
   const log = $('previewConsole');
@@ -4366,7 +4511,7 @@ function sendProjectToTerminalUI() {
 async function ensureBackendProject(p) {
   if (p.backendId) return p.backendId;
   const created = await DB.server('/api/projects', {
-    method: 'POST',
+    method: 'POST', timeoutMs: 90000,
     body: JSON.stringify({
       name: p.name, description: p.description, category: p.category,
       visibility: p.visibility, tags: p.tags,
@@ -4427,7 +4572,7 @@ async function deployProjectToCloudUI(projectId) {
   say('> uploading bundle…');
 
   const result = await DB.server('/api/projects/' + backendId + '/deploy', {
-    method: 'POST',
+    method: 'POST', timeoutMs: 90000,
     body: JSON.stringify({ html: built }),
   });
 
@@ -4798,6 +4943,111 @@ async function renderStorageManager() {
   if (label) label.textContent = formatBytes(totalBytes) + ' used by Knight on this device';
 }
 
+
+/* ===========================================================================
+   FEEDBACK + DELETING A DEPLOYED SITE
+=========================================================================== */
+
+let feedbackRating = 0;
+
+function paintFeedbackStars() {
+  const box = $('feedbackStars');
+  if (!box) return;
+  box.innerHTML = [1, 2, 3, 4, 5].map(n =>
+    `<button type="button" class="feedback-star ${n <= feedbackRating ? 'on' : ''}" onclick="setFeedbackRating(${n})" title="${n} of 5">
+      <svg viewBox="0 0 24 24"><polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6"/></svg></button>`
+  ).join('');
+}
+
+function setFeedbackRating(n) { feedbackRating = (feedbackRating === n ? 0 : n); paintFeedbackStars(); }
+
+function openFeedbackUI() {
+  if (!requireAuth()) return;
+  feedbackRating = 0;
+  $('feedbackMessage').value = '';
+  $('feedbackCategory').value = 'bug';
+  paintFeedbackStars();
+  openModalRaw('feedbackModal');
+}
+
+async function submitFeedbackUI() {
+  if (!requireAuth()) return;
+  const message = ($('feedbackMessage').value || '').trim();
+  if (!message) { toast('Write a message first.', true); return; }
+
+  const entry = {
+    id: uid('fb'), category: $('feedbackCategory').value,
+    rating: feedbackRating || null, message: message.slice(0, 5000), at: Date.now(), sent: false,
+  };
+
+  // Always saved on this device first, so nothing is lost if the backend is down.
+  const d = DB.data();
+  d.feedback = d.feedback || {};
+  d.feedback[myId()] = d.feedback[myId()] || [];
+  d.feedback[myId()].unshift(entry);
+  DB.saveData(d);
+  closeModal('feedbackModal');
+
+  if (API_BASE && DB.backendToken(me().email)) {
+    const r = await DB.server('/api/feedback', {
+      method: 'POST', timeoutMs: 60000,
+      body: JSON.stringify({ category: entry.category, rating: entry.rating, message: entry.message }),
+    });
+    if (r) {
+      const d2 = DB.data();
+      const saved = (d2.feedback[myId()] || []).find(f => f.id === entry.id);
+      if (saved) { saved.sent = true; DB.saveData(d2); }
+      toast('Thanks — feedback sent.');
+    } else {
+      toast('Saved on this device, but the backend did not respond.', true);
+    }
+  } else {
+    toast('Thanks — feedback saved on this device.');
+  }
+  renderFeedbackHistory();
+}
+
+function renderFeedbackHistory() {
+  const box = $('feedbackHistory');
+  if (!box) return;
+  const list = ((DB.data().feedback || {})[myId()] || []).slice(0, 5);
+  box.innerHTML = list.map(f => `<div class="proj-activity-row">
+      <span class="proj-activity-dot"></span>
+      <span class="proj-activity-text">${esc(f.category)}${f.rating ? ' · ' + '★'.repeat(f.rating) : ''} — ${esc(f.message.slice(0, 70))}${f.message.length > 70 ? '…' : ''}</span>
+      <span class="proj-activity-time">${f.sent ? 'sent' : 'saved'} · ${timeAgo(f.at)}</span></div>`).join('');
+}
+
+/** Take a deployed site down. If it lives on Knight Cloud, the backend is told
+    to delete it; if the backend can't be reached we do NOT pretend it's gone. */
+async function deleteDeployedSiteUI(projectId) {
+  if (!requireAuth()) return;
+  const d = DB.data();
+  const p = d.projects[projectId || currentProjectId];
+  if (!p) return;
+  const role = myRoleOn(p);
+  if (role !== 'owner' && role !== 'editor') { toast('Only owners and editors can delete a deployed site.', true); return; }
+  if (!p.deployedUrl) { toast('This project has no deployed site.'); return; }
+
+  const onKnightCloud = !!(p.backendId && API_BASE);
+  const msg = onKnightCloud
+    ? 'Delete the live site for "' + p.name + '"? Its link will stop working immediately. Your project files are kept.'
+    : 'Remove the saved link for "' + p.name + '"? If it is hosted elsewhere (Netlify, Vercel…), you still need to delete it there.';
+  if (!confirm(msg)) return;
+
+  if (onKnightCloud) {
+    const r = await DB.server('/api/projects/' + p.backendId + '/deploy', { method: 'DELETE', timeoutMs: 60000 });
+    if (!r) { toast('Could not reach the backend, so the live site was NOT deleted. Try again.', true); return; }
+  }
+
+  const d2 = DB.data();
+  d2.projects[p.id].deployedUrl = '';
+  d2.projects[p.id].updatedAt = Date.now();
+  DB.saveData(d2);
+  toast(onKnightCloud ? 'Live site deleted.' : 'Link removed.');
+  renderLinkDeployer();
+  if ($('projectDetailPage') && $('projectDetailPage').classList.contains('active')) openProjectDetail(p.id, true);
+}
+
 /* ---------------------------------------------------------------------------
    27. BOOT
 --------------------------------------------------------------------------- */
@@ -4806,27 +5056,38 @@ async function renderStorageManager() {
     variables. Called at boot, and again the instant Settings saves a change —
     no code edit, no reload, no redeploying this file required. */
 function loadCloudConfig() {
+  // Precedence: this browser's Settings (prefs) win, then the site-wide
+  // config.js that ships with the frontend, then nothing (local-only).
+  const site = (window.KNIGHT_CONFIG || {});
   const p = DB.prefs();
-  API_BASE = (p.apiBase || '').trim().replace(/\/+$/, '') || null;
-  WS_BASE = (p.wsBase || '').trim().replace(/\/+$/, '') || null;
-  WS_SERVER_KEY = (p.wsServerKey || '').trim() || 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';
+  const pick = (own, shipped) => ((own || '').trim() || (shipped || '').trim());
+  const clean = (u) => u.replace(/\/+$/, '') || null;
+
+  API_BASE = clean(pick(p.apiBase, site.apiBase));
+  WS_BASE = clean(pick(p.wsBase, site.wsBase));
+  WS_SERVER_KEY = pick(p.wsServerKey, site.wsServerKey) || 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';
+  ABLY_KEY = pick(p.ablyKey, site.ablyKey) || null;
 }
 
 async function saveCloudConfigUI() {
   const apiBase = ($('cloudApiBaseInput').value || '').trim();
   const wsBase = ($('cloudWsBaseInput').value || '').trim();
   const wsKey = ($('cloudWsKeyInput').value || '').trim();
+  const ablyKey = ($('cloudAblyKeyInput').value || '').trim();
 
   if (apiBase && !/^https?:\/\//i.test(apiBase)) { toast('API URL must start with http:// or https://', true); return; }
   if (wsBase && !/^wss?:\/\//i.test(wsBase)) { toast('WebSocket URL must start with ws:// or wss://', true); return; }
+  if (ablyKey && !/^[\w-]+\.[\w-]+:[\w-]+$/.test(ablyKey)) { toast('That doesn\'t look like a valid Ably key (expected appId.keyId:secret).', true); return; }
 
   const p = DB.prefs();
-  p.apiBase = apiBase; p.wsBase = wsBase; p.wsServerKey = wsKey;
+  p.apiBase = apiBase; p.wsBase = wsBase; p.wsServerKey = wsKey; p.ablyKey = ablyKey;
   DB.savePrefs(p);
   loadCloudConfig();   // takes effect immediately, live, in this tab
 
-  // reconnect the socket under the new address if one was already open
+  // reconnect under the new config if something was already open
   if (socket) { try { socket.close(); } catch {} socket = null; }
+  disconnectAbly();
+  connectAbly();
 
   renderCloudConfigStatus();
   toast('Cloud connection saved.');
@@ -4836,24 +5097,40 @@ async function saveCloudConfigUI() {
 
 async function testCloudConnectionUI() {
   const status = $('cloudConnectionStatus');
-  if (!API_BASE) { if (status) status.textContent = 'No API URL set — running fully local.'; return; }
-  if (status) status.textContent = 'Checking ' + API_BASE + '…';
+  const say = (text, color) => { if (status) { status.textContent = text; status.style.color = color || 'var(--text-tertiary)'; } };
 
-  const result = await DB.server('/api/health');
-  if (status) {
-    status.textContent = result
-      ? '✅ Backend reachable — ' + (result.status || 'up')
-      : '❌ Could not reach that backend. Check the URL, and that it is actually running.';
-    status.style.color = result ? 'var(--accent-green)' : 'var(--accent-coral)';
+  const parts = [];
+  if (ABLY_KEY) parts.push('Ably key set');
+  if (WS_BASE) parts.push('WebSocket server set');
+
+  if (!API_BASE) {
+    say(parts.length ? parts.join(' · ') + ' — no Java backend URL, so accounts, projects, and deploy stay local.' : 'Nothing configured — running fully local.');
+    return;
   }
+
+  // Free hosts (Render) sleep after ~15 minutes idle; the first request wakes
+  // them, which can take up to a minute. Retry instead of reporting a false failure.
+  const attempts = 6;
+  for (let i = 1; i <= attempts; i++) {
+    say(i === 1 ? 'Checking ' + API_BASE + '…' : 'Waking the backend up (free hosts sleep when idle) — try ' + i + '/' + attempts + '…');
+    const result = await DB.server('/api/health', { timeoutMs: 12000 });
+    if (result) {
+      say('✅ Backend reachable' + (parts.length ? ' · ' + parts.join(' · ') : ''), 'var(--accent-green)');
+      return;
+    }
+    if (i < attempts) await new Promise(r => setTimeout(r, 6000));
+  }
+  say('❌ Could not reach that backend. Check the URL, that the service is running, and that its CORS allows this site (KNIGHT_ALLOWED_ORIGINS).', 'var(--accent-coral)');
 }
 
 function renderCloudConfigStatus() {
-  const apiInput = $('cloudApiBaseInput'), wsInput = $('cloudWsBaseInput'), keyInput = $('cloudWsKeyInput');
+  const apiInput = $('cloudApiBaseInput'), wsInput = $('cloudWsBaseInput'),
+        keyInput = $('cloudWsKeyInput'), ablyInput = $('cloudAblyKeyInput');
   const p = DB.prefs();
   if (apiInput) apiInput.value = p.apiBase || '';
   if (wsInput) wsInput.value = p.wsBase || '';
   if (keyInput) keyInput.value = p.wsServerKey || '';
+  if (ablyInput) ablyInput.value = p.ablyKey || '';
 }
 
 function boot() {
@@ -4929,15 +5206,22 @@ function boot() {
     });
   }
 
-  // Console output from inside the preview iframe.
+  // Console output from inside a preview iframe — the Live Preview page's
+  // console AND Terminal's Debug tab both listen for the same bridge
+  // messages. Previously this only ever wrote to previewConsole, so runtime
+  // errors from Terminal's mini preview were silently dropped whenever that
+  // element wasn't on the page — this is the actual fix for that gap.
   window.addEventListener('message', (e) => {
     const m = e.data;
     if (!m || !m.__knightLog) return;
-    const log = $('previewConsole');
-    if (!log) return;
-    const tag = m.kind === 'error' ? '!' : m.kind === 'warn' ? '~' : '·';
-    log.textContent += '\n' + tag + ' ' + m.text;
-    log.scrollTop = log.scrollHeight;
+    recordTermRuntimeLog(m.kind, m.text);
+
+    const previewLog = $('previewConsole');
+    if (previewLog) {
+      const tag = m.kind === 'error' ? '!' : m.kind === 'warn' ? '~' : '·';
+      previewLog.textContent += '\n' + tag + ' ' + m.text;
+      previewLog.scrollTop = previewLog.scrollHeight;
+    }
   });
 
   paintServerButton();
@@ -5019,7 +5303,8 @@ Object.assign(window, {
   openPreviewFor, saveDeployUrlFor, handleNewProjectFiles,
   loadTermFile, restoreTermRun, forkProjectUI, openVersionDiffUI, scanVersionsForErrorsUI,
   openTerminalWorkspace, setTermWorkspaceTab, runTermDebugScan, runNetworkCheckUI,
-  saveCloudConfigUI, testCloudConnectionUI,
+  saveCloudConfigUI, testCloudConnectionUI, clearTermRuntimeLog,
+  openFeedbackUI, submitFeedbackUI, setFeedbackRating, deleteDeployedSiteUI,
   openGithubImportUI, importGithubRepoUI,
   setNotifFilter, markAllNotificationsRead, deleteNotification,
 });
