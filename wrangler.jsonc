@@ -1,0 +1,10 @@
+{
+  // Cloudflare reads this file at the repo root. The important line is
+  // assets.directory: it tells Cloudflare to publish ONLY the website folder,
+  // not the whole repo (backend source, node_modules, etc).
+  "name": "knight",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./frontend"
+  }
+}

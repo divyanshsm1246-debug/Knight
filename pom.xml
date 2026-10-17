@@ -1,37 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Maven build for KnightBackendApplication.java.
+  Maven build for the Knight backend.
 
-  WHERE THIS GOES
-  ================
-  A Maven project needs this exact layout:
+  Layout this file expects (already set up in the repo you were given):
+      backend/pom.xml
+      backend/Dockerfile
+      backend/src/main/java/com/knight/backend/KnightBackendApplication.java
+      backend/src/main/resources/application.properties
 
-      knight-backend/
-        pom.xml                                           (this file)
-        src/main/java/com/knight/backend/
-          KnightBackendApplication.java                    (the file I gave you earlier)
-        src/main/resources/
-          application.properties                           (the file I gave you alongside this one)
-
-  Put KnightBackendApplication.java at that exact path (note the package
-  folders matching its "package com.knight.backend;" line) and
-  application.properties at that exact path, then:
-
-      mvn spring-boot:run          (run it locally to test)
-      mvn clean package            (produces target/knight-backend-1.0.0.jar)
-
-  DEPLOYING (Render, as an example)
-  ===================================
-  1. Push this whole folder to a GitHub repo.
-  2. On Render: New, Web Service, connect that repo.
-  3. Build command:  mvn clean package -DskipTests
-  4. Start command:  java -jar target/knight-backend-1.0.0.jar
-  5. PORT is set automatically by Render; the app already reads it
-     (see application.properties).
-  6. Once it's live, copy the URL Render gives you (e.g.
-     https://knight-backend-xxxx.onrender.com) into Knight's
-     Settings and Guides, Cloud Connection, Java Backend URL,
-     then hit Save and Connect.
+  Local run:   mvn spring-boot:run
+  Build jar:   mvn clean package   (produces target/knight-backend-1.0.0.jar)
+  On Render the Dockerfile in this folder runs that build for you.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -49,7 +28,7 @@
   <artifactId>knight-backend</artifactId>
   <version>1.0.0</version>
   <name>knight-backend</name>
-  <description>Knight's Java REST backend: accounts, projects, deployment, analytics, presence.</description>
+  <description>Knight's Java REST backend: accounts, projects, deployment, analytics, presence, feedback.</description>
 
   <properties>
     <java.version>17</java.version>
@@ -65,27 +44,19 @@
       <artifactId>spring-boot-starter-data-jpa</artifactId>
     </dependency>
 
-    <!-- Dev/default database: a real file on disk, so accounts survive a restart.
-         Swap for postgresql below when you outgrow a single instance. -->
+    <!-- Local development database (a file on your own computer). -->
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
       <scope>runtime</scope>
     </dependency>
 
-    <!--
-    Uncomment for production on Render/Railway/etc with a managed Postgres:
+    <!-- Real hosting: Postgres (Neon, Supabase, Render Postgres). Used whenever
+         the DATABASE_URL environment variable is set. -->
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <scope>runtime</scope>
-    </dependency>
-    -->
-
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 

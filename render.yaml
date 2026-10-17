@@ -1,64 +1,21 @@
-# Render Blueprint — deploys BOTH Knight backend services from one repo.
-#
-# EXPECTED REPO LAYOUT
-# ---------------------
-#   your-repo/
-#     render.yaml                                   <- this file, at the repo root
-#     backend/
-#       pom.xml
-#       src/main/java/com/knight/backend/KnightBackendApplication.java
-#       src/main/resources/application.properties
-#     websocket/
-#       websocket-server.js
-#       package.json
-#
-# HOW TO USE
-# -----------
-# 1. Create the folders above and put the matching file in each (I gave you
-#    all four files: pom.xml, application.properties, KnightBackendApplication.java,
-#    websocket-server.js, package.json — application.properties goes inside
-#    backend/src/main/resources/, KnightBackendApplication.java inside
-#    backend/src/main/java/com/knight/backend/).
-# 2. Push that repo to GitHub.
-# 3. On Render: New -> Blueprint -> connect the repo. Render reads this file
-#    and creates both services automatically.
-# 4. After they deploy, copy each service's URL from the Render dashboard
-#    into Knight's Settings & Guides -> Cloud Connection, and hit Save & Connect.
-#
-# You can also skip this file entirely and create the two services by hand in
-# Render's UI (New -> Web Service, twice) using the same build/start commands
-# below — render.yaml is a convenience, not a requirement.
-
+# Render Blueprint for the Java backend. (The WebSocket server is optional:
+# if you use Ably for real-time chat you do not need to deploy websocket/.)
 services:
   - type: web
     name: knight-backend
-    runtime: java
-    rootDir: backend
-    buildCommand: mvn clean package -DskipTests
-    startCommand: java -jar target/knight-backend-1.0.0.jar
-    envVars:
-      - key: PORT
-        value: 8080
-      - key: KNIGHT_ALLOWED_ORIGINS
-        sync: false   # you fill this in on the Render dashboard: your real site
-                      # origin(s), comma-separated, e.g. https://myknight.com
-                      # (*.pages.dev, *.onrender.com, *.vercel.app, *.netlify.app
-                      # and *.github.io are already allowed by default).
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
     healthCheckPath: /api/health
-    plan: free
-
-  - type: web
-    name: knight-websocket
-    runtime: node
-    rootDir: websocket
-    buildCommand: npm install
-    startCommand: npm start
     envVars:
-      - key: KNIGHT_SERVER_KEY
-        generateValue: true   # Render will generate a random secret for you —
-                               # copy it from the dashboard into Knight's
-                               # Settings -> Cloud Connection -> WebSocket Server Key.
-      - key: PORT
-        value: 8081
-    healthCheckPath: /health
-    plan: free
+      # Paste your Neon (or Supabase) Postgres connection string here, in the
+      # Render dashboard. WITHOUT this the free host wipes every account each
+      # time it sleeps.
+      - key: DATABASE_URL
+        sync: false
+      # Your real site origin(s), comma-separated, e.g. https://knight.workers.dev
+      # (*.pages.dev, *.onrender.com, *.vercel.app, *.netlify.app, *.github.io
+      # are already allowed by default).
+      - key: KNIGHT_ALLOWED_ORIGINS
+        sync: false

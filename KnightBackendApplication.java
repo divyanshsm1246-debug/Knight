@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.HttpStatus;
@@ -15,6 +18,8 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import javax.sql.DataSource;
+import java.net.URI;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -59,15 +64,76 @@ public class KnightBackendApplication {
    ------------------------------------------------------------------------- */
 @Configuration
 class CorsConfig implements WebMvcConfigurer {
+    /** Extra origins, comma-separated, set as an environment variable on the
+        host — e.g. KNIGHT_ALLOWED_ORIGINS=https://myknight.com,https://www.myknight.com
+        Without your real site's origin here the browser blocks every API call
+        from it (CORS), no matter how correct the backend is. */
+    @org.springframework.beans.factory.annotation.Value("${KNIGHT_ALLOWED_ORIGINS:}")
+    private String extraOrigins;
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        List<String> patterns = new ArrayList<>(List.of(
+                "http://localhost:*", "http://127.0.0.1:*",
+                "https://*.onrender.com", "https://*.pages.dev",      // Cloudflare Pages
+                "https://*.vercel.app", "https://*.netlify.app", "https://*.github.io"));
+        if (extraOrigins != null && !extraOrigins.isBlank()) {
+            for (String o : extraOrigins.split(",")) if (!o.isBlank()) patterns.add(o.trim());
+        }
         registry.addMapping("/api/**")
-                // Replace these with your real frontend origins before going live.
-                .allowedOriginPatterns("http://localhost:*", "https://*.onrender.com",
-                                       "https://*.vercel.app", "https://*.netlify.app")
+                .allowedOriginPatterns(patterns.toArray(new String[0]))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true);
+    }
+}
+
+/* -------------------------------------------------------------------------
+   DATABASE
+   Free hosts (Render) wipe the local disk whenever the service sleeps,
+   restarts or redeploys, so a file database loses every account. Set the
+   DATABASE_URL environment variable to a Postgres connection string (Neon,
+   Supabase, or Render Postgres all hand you one, in the form
+   postgresql://user:password@host/dbname?sslmode=require) and this switches
+   Knight to that database automatically. With no DATABASE_URL it falls back
+   to the local H2 file from application.properties, which is fine for
+   running on your own computer.
+   ------------------------------------------------------------------------- */
+@Configuration
+@ConditionalOnProperty(name = "DATABASE_URL")
+class PostgresDataSourceConfig {
+    @Bean
+    public DataSource dataSource(@org.springframework.beans.factory.annotation.Value("${DATABASE_URL}") String raw) throws Exception {
+        String url = raw.trim();
+        if (url.isEmpty()) {
+            // The variable exists but was left blank (easy to do in a host's dashboard):
+            // fall back to the local file database instead of crashing at startup.
+            return DataSourceBuilder.create().url("jdbc:h2:file:./data/knight;DB_CLOSE_ON_EXIT=FALSE")
+                    .username("sa").password("").build();
+        }
+        if (url.startsWith("jdbc:")) {
+            return DataSourceBuilder.create().url(url).build();
+        }
+        URI uri = new URI(url.replaceFirst("^postgres(ql)?://", "postgresql://"));
+        String user = null, pass = null;
+        String info = uri.getUserInfo();
+        if (info != null) {
+            int colon = info.indexOf(':');
+            user = colon >= 0 ? info.substring(0, colon) : info;
+            pass = colon >= 0 ? info.substring(colon + 1) : "";
+        }
+        if (uri.getHost() == null || uri.getPath() == null || uri.getPath().length() < 2) {
+            throw new IllegalStateException("DATABASE_URL is set but is not a valid Postgres URL. "
+                    + "Expected: postgresql://user:password@host/dbname?sslmode=require");
+        }
+        int port = uri.getPort() == -1 ? 5432 : uri.getPort();
+        String query = (uri.getQuery() == null || uri.getQuery().isBlank()) ? "sslmode=require" : uri.getQuery();
+        String jdbc = "jdbc:postgresql://" + uri.getHost() + ":" + port + uri.getPath() + "?" + query;
+
+        DataSourceBuilder<?> builder = DataSourceBuilder.create().url(jdbc).driverClassName("org.postgresql.Driver");
+        if (user != null) builder = builder.username(user);
+        if (pass != null) builder = builder.password(pass);
+        return builder.build();
     }
 }
 
@@ -239,8 +305,7 @@ class Project {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "project_files", joinColumns = @JoinColumn(name = "project_id"))
     @MapKeyColumn(name = "filename")
-    @Lob
-    @Column(name = "content", length = 100000)
+    @Column(name = "content", columnDefinition = "TEXT")
     private Map<String, String> files = new HashMap<>();
 
     @ElementCollection(fetch = FetchType.EAGER)
@@ -334,8 +399,7 @@ class ProjectVersion {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "version_files", joinColumns = @JoinColumn(name = "version_id"))
     @MapKeyColumn(name = "filename")
-    @Lob
-    @Column(name = "content", length = 100000)
+    @Column(name = "content", columnDefinition = "TEXT")
     private Map<String, String> snapshot = new HashMap<>();
 
     public ProjectVersion() {}
@@ -376,8 +440,7 @@ class DeployedSite {
     @Column(nullable = false)
     private Long projectId;
 
-    @Lob
-    @Column(nullable = false, length = 3000000)   // up to ~3MB of built HTML
+    @Column(nullable = false, columnDefinition = "TEXT")   // up to ~3MB of built HTML
     private String html;
 
     private Integer deployCount = 1;
@@ -414,8 +477,8 @@ class ChangeRequest {
     private Long authorId;
     private String filename;
 
-    @Lob @Column(length = 100000) private String beforeContent = "";
-    @Lob @Column(length = 100000) private String afterContent = "";
+    @Column(columnDefinition = "TEXT") private String beforeContent = "";
+    @Column(columnDefinition = "TEXT") private String afterContent = "";
 
     /** pending | accepted | rejected */
     private String status = "pending";
@@ -1383,3 +1446,71 @@ class JoinRequest    { public String code; }
      com.h2database:h2            (runtime)
      org.postgresql:postgresql    (runtime, production only)
 ============================================================================ */
+
+
+/* -------------------------------------------------------------------------
+   FEEDBACK — the in-app Feedback form posts here when a backend is connected
+   (it is always saved on the device too, so nothing is lost if this is down).
+   ------------------------------------------------------------------------- */
+@Entity
+@Table(name = "feedback")
+class Feedback {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private Long userId;
+    private String username;
+    private String category;
+    private Integer rating;
+    @Column(columnDefinition = "TEXT") private String message;
+    private Instant createdAt = Instant.now();
+
+    public Feedback() {}
+    public Feedback(Long userId, String username, String category, Integer rating, String message) {
+        this.userId = userId; this.username = username; this.category = category;
+        this.rating = rating; this.message = message;
+    }
+    public Long getId() { return id; }
+    public Long getUserId() { return userId; }
+    public String getUsername() { return username; }
+    public String getCategory() { return category; }
+    public Integer getRating() { return rating; }
+    public String getMessage() { return message; }
+    public Instant getCreatedAt() { return createdAt; }
+}
+
+@Repository interface FeedbackRepo extends JpaRepository<Feedback, Long> {
+    List<Feedback> findAllByOrderByCreatedAtDesc();
+}
+
+@RestController
+@RequestMapping("/api/feedback")
+class FeedbackController {
+    private final AuthService auth;
+    private final FeedbackRepo repo;
+
+    FeedbackController(AuthService auth, FeedbackRepo repo) { this.auth = auth; this.repo = repo; }
+
+    @PostMapping
+    ResponseEntity<Map<String, String>> submit(@RequestHeader(value = "Authorization", required = false) String h,
+                                               @RequestBody FeedbackRequest req) {
+        KnightUser u = auth.requireUser(h);
+        if (req.message == null || req.message.isBlank())
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Feedback message is empty.");
+        String msg = req.message.length() > 5000 ? req.message.substring(0, 5000) : req.message;
+        Integer rating = (req.rating == null) ? null : Math.max(1, Math.min(5, req.rating));
+        repo.save(new Feedback(u.getId(), u.getUsername(),
+                req.category == null ? "general" : req.category, rating, msg));
+        return ResponseEntity.ok(Map.of("status", "received"));
+    }
+
+    /** Read-only list for the deployment's owner (the first account created). */
+    @GetMapping
+    ResponseEntity<List<Feedback>> list(@RequestHeader(value = "Authorization", required = false) String h) {
+        KnightUser u = auth.requireUser(h);
+        if (!u.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "Only the site owner can read feedback.");
+        return ResponseEntity.ok(repo.findAllByOrderByCreatedAtDesc());
+    }
+}
+
+class FeedbackRequest { public String category, message; public Integer rating; }
