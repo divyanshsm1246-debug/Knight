@@ -19,3 +19,9 @@ services:
       # are already allowed by default).
       - key: KNIGHT_ALLOWED_ORIGINS
         sync: false
+      # Optional: turns on the AI assistant for everyone on your site. Paste your
+      # OpenRouter key in the Render dashboard (never in a file). Also set a credit
+      # limit on that key in OpenRouter. Without this, users can still paste their
+      # own key in Settings.
+      - key: OPENROUTER_API_KEY
+        sync: false

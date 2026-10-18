@@ -769,6 +769,7 @@ function enterApp(user, { fresh = false } = {}) {
 
   // Try the server for a fresher profile — but never block on it.
   refreshProfileFromServer();
+  refreshAiStatus();
 
   if (fresh) {
     const def = DB.prefs().defaultPage;
@@ -1485,7 +1486,10 @@ function projectCard(p, showRole) {
     </div>
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
       <div class="enter-btn" style="margin:0;">★ ${p.stars || 0} · ${fileCount} files · v${ver}</div>
-      ${hasHtml ? `<button class="nav-cta btn-golden" style="font-size:.68rem;padding:5px 10px;flex-shrink:0;" onclick="event.stopPropagation(); openProjectBuild('${p.id}')">▶ Preview</button>` : ''}
+      <div style="display:flex; gap:6px; align-items:center;">
+        ${p.ownerId === myId() ? `<button class="card-delete-btn" title="Delete project" onclick="event.stopPropagation(); deleteProjectUI('${p.id}')">🗑</button>` : ''}
+        ${hasHtml ? `<button class="nav-cta btn-golden" style="font-size:.68rem;padding:5px 10px;flex-shrink:0;" onclick="event.stopPropagation(); openProjectBuild('${p.id}')">▶ Preview</button>` : ''}
+      </div>
     </div>
   </div>`;
 }
@@ -1551,6 +1555,9 @@ function openProjectDetail(id, fromRouter = false) {
   renderChangeRequests(p, isOwner || role === 'editor');
   renderProjectStats(p);
   renderProjectActivity(p);
+  renderProjectDangerZone(p, isOwner);
+  paintAiStatus();
+  renderAiProposal('project');
   renderProjectDeployPanel(p, isOwner || canEdit);
   updateProjectTabCounts(p);
   setProjectTab(projectActiveTab);
@@ -1560,7 +1567,7 @@ function openProjectDetail(id, fromRouter = false) {
 
 let projectActiveTab = 'overview';
 
-const PROJECT_TABS = ['overview', 'files', 'versions', 'contributors', 'changes', 'deploy'];
+const PROJECT_TABS = ['overview', 'files', 'ai', 'versions', 'contributors', 'changes', 'deploy'];
 
 function setProjectTab(tab) {
   projectActiveTab = tab;
@@ -3801,6 +3808,7 @@ function renderCmdk() {
 let camStream = null;
 
 function renderSettings() {
+  renderAiSettings();
   renderFeedbackHistory();
   renderCloudConfigStatus();
   testCloudConnectionUI();
@@ -4177,6 +4185,9 @@ function openNewProjectModal() {
   if (!requireAuth()) return;
   pendingProjectFiles = {};
   renderPendingFiles();
+  aiProposals.new = null; renderAiProposal('new');
+  if ($('newProjAiPrompt')) $('newProjAiPrompt').value = '';
+  paintAiStatus(); refreshAiStatus();
   openModalRaw('newProjectModal');
 }
 
@@ -5048,6 +5059,468 @@ async function deleteDeployedSiteUI(projectId) {
   if ($('projectDetailPage') && $('projectDetailPage').classList.contains('active')) openProjectDetail(p.id, true);
 }
 
+/* ===========================================================================
+   AI ASSISTANT — generate files, review them, and only then write them to a repo
+
+   Flow: you describe what you want -> the model answers with files in a strict
+   format -> Knight parses and validates every path -> you see each file and
+   tick what you want -> only after you click Allow do files enter the repo.
+   Nothing the AI writes is ever saved or run automatically, which is also
+   what keeps a prompt-injection hidden in some project file from doing harm.
+
+   Two ways to reach the model, same code path either way:
+     - this browser's own OpenRouter key (Settings; stored only on this device)
+     - the backend's /api/ai/chat proxy, where the key stays on the server
+=========================================================================== */
+
+const AI_DEFAULT_MODEL = 'openrouter/auto';
+const AI_MAX_FILES = 40;
+const AI_MAX_FILE_CHARS = 400 * 1024;
+const AI_MAX_TOTAL_CHARS = 1500 * 1024;
+const AI_CONTEXT_PER_FILE = 12000;
+const AI_CONTEXT_TOTAL = 60000;
+
+const AI_SYSTEM_PROMPT = `You are Knight's coding assistant, working inside a project repository.
+
+When you create or change files, output EACH file in exactly this format:
+
+===FILE: relative/path/to/file.ext===
+<the complete file content>
+===END FILE===
+
+Rules:
+- Paths are relative to the repository root, use forward slashes, and never start with "/" or contain "..".
+- Always output the COMPLETE file. Never output diffs and never write "rest of file unchanged".
+- Put your explanation OUTSIDE the file blocks, before them, in a few short sentences.
+- Do not wrap file content in markdown code fences.
+- For a website, include an index.html that links its own style.css and script.js by relative path.
+- Only create the files that are needed for the request.`;
+
+let aiBackendStatus = null;            // { enabled, model, hourlyLimit } from the backend, if reachable
+let aiBusy = false;
+const aiProposals = { project: null, new: null };
+
+function aiPersonalKey() { return ((DB.prefs().openrouterKey) || '').trim(); }
+function aiModelName() { return ((DB.prefs().aiModel) || '').trim() || AI_DEFAULT_MODEL; }
+
+async function refreshAiStatus() {
+  if (!API_BASE || !me() || !DB.backendToken(me().email)) { aiBackendStatus = null; paintAiStatus(); return; }
+  const r = await DB.server('/api/ai/status', { timeoutMs: 15000 });
+  aiBackendStatus = (r && typeof r.enabled === 'boolean') ? r : null;
+  paintAiStatus();
+}
+
+/** 'personal' (own key) wins, then 'backend' (the site's shared key), else 'none'. */
+function aiMode() {
+  if (aiPersonalKey()) return 'personal';
+  if (aiBackendStatus && aiBackendStatus.enabled) return 'backend';
+  return 'none';
+}
+
+function paintAiStatus() {
+  const mode = aiMode();
+  const text = mode === 'personal' ? '✅ AI ready: using your own OpenRouter key (' + aiModelName() + ')'
+    : mode === 'backend' ? '✅ AI ready: provided by this site (' + (aiBackendStatus.model || 'default model') + ')'
+    : 'AI is not set up yet. Add an OpenRouter key under Settings & Guides → AI Assistant.';
+  ['aiStatusLine', 'newProjAiStatus'].forEach(id => {
+    const el = $(id);
+    if (el) { el.textContent = text; el.classList.toggle('is-ready', mode !== 'none'); }
+  });
+}
+
+function aiHttpError(status, data) {
+  const detail = data && data.error && (data.error.message || data.error);
+  if (status === 401) return 'OpenRouter rejected the key (invalid or revoked).';
+  if (status === 402) return 'Out of OpenRouter credits, or this key\'s credit limit is used up.';
+  if (status === 429) return 'Rate limited by OpenRouter. Wait a moment and try again.';
+  if (status === 502 || status === 503) return 'The chosen model is down right now. Try a different model in Settings.';
+  return 'AI error ' + status + (detail ? ': ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : '');
+}
+
+/** One question to the model. Returns { content, finishReason, model } or throws a readable Error. */
+async function callAI(messages) {
+  const mode = aiMode();
+  if (mode === 'none') throw new Error('AI is not set up yet. Add an OpenRouter key in Settings & Guides.');
+
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 120000) : null;
+  let res;
+  try {
+    if (mode === 'personal') {
+      res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST', signal: ctrl ? ctrl.signal : undefined,
+        headers: { 'Authorization': 'Bearer ' + aiPersonalKey(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModelName(), messages, max_tokens: 8000 }),
+      });
+    } else {
+      const token = DB.backendToken(me().email);
+      if (!token) throw new Error('Sign out and back in while the backend is reachable, then try again.');
+      res = await fetch(API_BASE + '/api/ai/chat', {
+        method: 'POST', signal: ctrl ? ctrl.signal : undefined,
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages }),
+      });
+    }
+  } catch (e) {
+    if (e && e.message && !/fetch|network|abort/i.test(e.message)) throw e;
+    throw new Error(e && e.name === 'AbortError'
+      ? 'The AI took too long to answer (2 minutes). Try a smaller request.'
+      : 'Could not reach the AI service. Check your connection.');
+  } finally { if (timer) clearTimeout(timer); }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    if (mode === 'backend') throw new Error((data && data.error) || ('The Knight backend answered ' + res.status + '.'));
+    throw new Error(aiHttpError(res.status, data));
+  }
+  if (mode === 'backend') return { content: data.content || '', finishReason: data.finishReason || '', model: data.model || '' };
+
+  const choice = data && data.choices && data.choices[0];
+  if (!choice || !choice.message) throw new Error('The AI returned no answer.');
+  return { content: String(choice.message.content || ''), finishReason: choice.finish_reason || '', model: data.model || '' };
+}
+
+/* ----- building the request ------------------------------------------------ */
+
+function buildAiContext(files) {
+  let out = 'File contents:', used = 0; const omitted = [];
+  Object.keys(files || {}).forEach(name => {
+    const body = String(files[name] == null ? '' : files[name]);
+    if (isImage(name) || body.startsWith('data:')) { omitted.push(name + ' (binary)'); return; }
+    if (used >= AI_CONTEXT_TOTAL) { omitted.push(name + ' (context full)'); return; }
+    let chunk = body.slice(0, Math.min(AI_CONTEXT_PER_FILE, AI_CONTEXT_TOTAL - used));
+    const cut = chunk.length < body.length;
+    used += chunk.length;
+    out += '\n===FILE: ' + name + '===\n' + chunk + (cut ? '\n…[truncated]' : '') + '\n===END FILE===';
+  });
+  if (omitted.length) out += '\n(Not included: ' + omitted.join(', ') + ')';
+  return out;
+}
+
+function buildAiUserMessage(project, prompt, includeContext) {
+  const parts = [];
+  if (project) {
+    parts.push('Project: ' + project.name + (project.description ? ' — ' + project.description : ''));
+    const names = Object.keys(project.files || {});
+    parts.push(names.length
+      ? 'Current files:\n' + names.map(n => '- ' + n + ' (' + String(project.files[n] || '').length + ' chars)').join('\n')
+      : 'The repository is empty.');
+    if (includeContext && names.length) parts.push(buildAiContext(project.files));
+  }
+  parts.push('Request:\n' + prompt);
+  return parts.join('\n\n');
+}
+
+/* ----- reading the answer --------------------------------------------------- */
+
+function stripOuterFence(text) {
+  const m = /^```[^\n]*\n([\s\S]*?)\n```\s*$/.exec(text);
+  return m ? m[1] : text;
+}
+
+function parseAiFiles(text) {
+  const rest = String(text || '');
+  const files = [], spans = [];
+  const re = /^===FILE:\s*(.+?)\s*===[ \t]*\r?\n([\s\S]*?)\r?\n?===END FILE===[ \t]*$/gm;
+  let m;
+  while ((m = re.exec(rest))) {
+    files.push({ rawPath: m[1], content: stripOuterFence(m[2]), complete: true });
+    spans.push([m.index, re.lastIndex]);
+  }
+  // A final block with no END marker means the model ran out of room mid-file.
+  const tailStart = spans.length ? spans[spans.length - 1][1] : 0;
+  const open = /^===FILE:\s*(.+?)\s*===[ \t]*\r?\n([\s\S]*)$/m.exec(rest.slice(tailStart));
+  if (open) {
+    files.push({ rawPath: open[1], content: stripOuterFence(open[2]), complete: false });
+    spans.push([tailStart + open.index, rest.length]);
+  }
+  let message = '', pos = 0;
+  spans.forEach(([a, b]) => { message += rest.slice(pos, a); pos = b; });
+  message += rest.slice(pos);
+  return { message: message.trim(), files };
+}
+
+/** The AI picks the paths, so they are untrusted input: no absolute paths,
+    no "..", no .git, no odd characters. Anything unsafe is dropped, not "fixed". */
+function sanitizeRepoPath(raw) {
+  let p = String(raw || '').trim().replace(/^`+|`+$/g, '').replace(/^["']|["']$/g, '')
+    .replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+/, '').replace(/\/{2,}/g, '/');
+  if (!p || p.length > 200) return null;
+  if (/[\u0000-\u001f]/.test(p)) return null;
+  if (!/^[\w.\-@+()\[\] \/]+$/.test(p)) return null;
+  const parts = p.split('/');
+  if (parts.some(s => s === '' || s === '.' || s === '..')) return null;
+  if (parts[0].toLowerCase() === '.git') return null;
+  return p;
+}
+
+function prepareAiProposal(parsed, existing) {
+  const byPath = new Map(), dropped = [];
+  parsed.files.forEach(f => {
+    const path = sanitizeRepoPath(f.rawPath);
+    if (!path) { dropped.push(String(f.rawPath).slice(0, 60)); return; }
+    const content = (!f.content || f.content.endsWith('\n')) ? f.content : f.content + '\n';
+    byPath.set(path, { path, content, complete: f.complete });
+  });
+  let files = Array.from(byPath.values());
+  let extra = 0;
+  if (files.length > AI_MAX_FILES) { extra = files.length - AI_MAX_FILES; files = files.slice(0, AI_MAX_FILES); }
+  let total = 0;
+  files.forEach(f => {
+    f.exists = Object.prototype.hasOwnProperty.call(existing || {}, f.path);
+    f.same = f.exists && existing[f.path] === f.content;
+    total += f.content.length;
+    f.problem = null;
+    if (f.content.length > AI_MAX_FILE_CHARS) f.problem = 'too large (' + formatBytes(f.content.length) + ')';
+    else if (!f.complete) f.problem = 'cut off mid-file';
+    else if (total > AI_MAX_TOTAL_CHARS) f.problem = 'over the total size limit';
+    f.selected = !f.problem && !f.same;
+    f.open = false;
+  });
+  return { message: parsed.message, files, dropped, extra };
+}
+
+/* ----- the review UI ----------------------------------------------------------- */
+
+function renderAiProposal(ctx) {
+  const box = $(ctx === 'new' ? 'newProjAiBox' : 'aiProposalBox');
+  if (!box) return;
+  let pr = aiProposals[ctx];
+  if (pr && ctx === 'project' && pr.projectId !== currentProjectId) { aiProposals.project = pr = null; }
+  if (!pr) { box.innerHTML = ''; return; }
+
+  const sel = pr.files.filter(f => f.selected && !f.problem).length;
+  const rows = pr.files.map((f, i) => {
+    const badge = f.problem ? ['bad', f.problem] : f.same ? ['same', 'no change'] : f.exists ? ['over', 'overwrites existing'] : ['new', 'new'];
+    return `<div class="ai-file-row ${f.problem ? 'has-problem' : ''}">
+        <label class="ai-file-main">
+          <input type="checkbox" ${f.selected ? 'checked' : ''} ${f.problem ? 'disabled' : ''} onchange="toggleAiFile('${ctx}', ${i}, this.checked)">
+          <span class="ai-file-path">${esc(f.path)}</span>
+          <span class="ai-badge ${badge[0]}">${esc(badge[1])}</span>
+        </label>
+        <button class="ai-preview-btn" onclick="toggleAiPreview('${ctx}', ${i})">${f.open ? 'Hide' : 'Preview'}</button>
+      </div>${f.open ? `<pre class="ai-file-preview">${esc(f.content.slice(0, 4000))}${f.content.length > 4000 ? '\n… (' + formatBytes(f.content.length) + ' in total)' : ''}</pre>` : ''}`;
+  }).join('');
+
+  box.innerHTML =
+    (pr.message ? `<div class="ai-message">${esc(pr.message)}</div>` : '') +
+    (pr.finishReason === 'length' ? `<div class="ai-warn">The answer hit the length limit, so the last file may be incomplete. Ask for fewer files at a time.</div>` : '') +
+    (pr.dropped.length ? `<div class="ai-warn">Skipped ${pr.dropped.length} file${pr.dropped.length === 1 ? '' : 's'} with an unsafe or invalid path: ${esc(pr.dropped.join(', '))}</div>` : '') +
+    (pr.extra ? `<div class="ai-warn">${pr.extra} more file${pr.extra === 1 ? ' was' : 's were'} left out (limit ${AI_MAX_FILES} per request).</div>` : '') +
+    (!pr.files.length ? `<div class="ai-warn">The AI did not produce any files for that. Try naming the files you want.</div>` : '') +
+    (pr.files.length ? `<div class="ai-file-list">${rows}</div>
+      <div class="ai-actions">
+        <button class="nav-cta btn-golden" ${sel ? '' : 'disabled'} onclick="applyAiProposalUI('${ctx}')">✓ Allow: add ${sel} file${sel === 1 ? '' : 's'} ${ctx === 'new' ? 'to the new repo' : 'to this repo'}</button>
+        <button class="nav-cta" onclick="discardAiProposal('${ctx}')">Discard</button>
+      </div>` : `<div class="ai-actions"><button class="nav-cta" onclick="discardAiProposal('${ctx}')">Dismiss</button></div>`);
+}
+
+function toggleAiFile(ctx, i, on) {
+  const pr = aiProposals[ctx];
+  if (pr && pr.files[i] && !pr.files[i].problem) { pr.files[i].selected = !!on; renderAiProposal(ctx); }
+}
+function toggleAiPreview(ctx, i) {
+  const pr = aiProposals[ctx];
+  if (pr && pr.files[i]) { pr.files[i].open = !pr.files[i].open; renderAiProposal(ctx); }
+}
+function discardAiProposal(ctx) { aiProposals[ctx] = null; renderAiProposal(ctx); }
+
+/* ----- asking ------------------------------------------------------------------ */
+
+async function runAiGenerate(ctx) {
+  if (!requireAuth() || aiBusy) return;
+  const prompt = (($(ctx === 'new' ? 'newProjAiPrompt' : 'aiPromptInput').value) || '').trim();
+  if (!prompt) { toast('Describe what you want first.', true); return; }
+
+  let project, existing;
+  if (ctx === 'project') {
+    project = DB.data().projects[currentProjectId];
+    if (!project) return;
+    if (!['owner', 'editor', 'contributor'].includes(myRoleOn(project))) { toast('Viewers cannot add files to this project.', true); return; }
+    existing = project.files || {};
+  } else {
+    existing = pendingProjectFiles;
+    project = { name: (($('newProjName').value) || '').trim() || 'New project', description: (($('newProjDesc').value) || '').trim(), files: pendingProjectFiles };
+  }
+
+  await refreshAiStatus();
+  if (aiMode() === 'none') { toast('Add an OpenRouter key first (Settings & Guides → AI Assistant).', true); return; }
+
+  const includeContext = ctx === 'new' ? Object.keys(pendingProjectFiles).length > 0 : !!($('aiIncludeContext') && $('aiIncludeContext').checked);
+  const btn = $(ctx === 'new' ? 'newProjAiBtn' : 'aiGenerateBtn');
+  aiBusy = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Thinking…'; }
+  try {
+    const reply = await callAI([
+      { role: 'system', content: AI_SYSTEM_PROMPT },
+      { role: 'user', content: buildAiUserMessage(project, prompt, includeContext) },
+    ]);
+    const parsed = parseAiFiles(reply.content);
+    const proposal = prepareAiProposal(parsed, existing);
+    proposal.finishReason = reply.finishReason;
+    proposal.prompt = prompt;
+    proposal.projectId = ctx === 'project' ? currentProjectId : null;
+    // If the model ignored the format and just talked, show what it said instead of nothing.
+    if (!parsed.files.length && !proposal.message) proposal.message = reply.content.slice(0, 1200);
+    aiProposals[ctx] = proposal;
+    renderAiProposal(ctx);
+  } catch (e) {
+    toast(e.message || 'The AI request failed.', true);
+  } finally {
+    aiBusy = false;
+    if (btn) { btn.disabled = false; btn.textContent = ctx === 'new' ? '✨ Generate files' : '✨ Generate'; }
+  }
+}
+function generateAiProjectFilesUI() { return runAiGenerate('project'); }
+function generateNewProjectFilesUI() { return runAiGenerate('new'); }
+
+/* ----- Allow: the only place AI files enter a repo ---------------------------------- */
+
+function applyAiFilesToProject(projectId, files, promptText) {
+  const d = DB.data();
+  const p = d.projects[projectId];
+  if (!p) return { applied: 0, mode: 'missing' };
+  const role = myRoleOn(p);
+
+  if (role === 'contributor') {
+    // Same rule as any contributor edit: it goes to review, never straight in.
+    files.forEach(f => p.changeRequests.push({
+      id: uid('cr'), by: myId(), file: f.path, before: p.files[f.path] ?? '', after: f.content,
+      status: 'pending', at: Date.now(),
+    }));
+    DB.saveData(d);
+    pushNotification(p.ownerId, 'New Change Request', me().username + ' proposed ' + files.length + ' AI-written file(s) for ' + p.name + '.', '#/project/' + p.id);
+    return { applied: files.length, mode: 'review' };
+  }
+  if (role !== 'owner' && role !== 'editor') return { applied: 0, mode: 'denied' };
+
+  // Snapshot first so the whole AI change can be rolled back from the Versions tab.
+  if (Object.keys(p.files || {}).length) {
+    p.versions.push({
+      id: uid('ver'), label: 'Version ' + (p.versions.length + 1),
+      note: 'Before AI changes: ' + String(promptText || '').slice(0, 80),
+      at: Date.now(), snapshot: structuredCloneSafe(p.files),
+    });
+  }
+  files.forEach(f => { p.files[f.path] = f.content; });
+  p.updatedAt = Date.now();
+  DB.saveData(d);
+  return { applied: files.length, mode: 'direct' };
+}
+
+function applyAiProposalUI(ctx) {
+  const pr = aiProposals[ctx];
+  if (!pr) return;
+  const chosen = pr.files.filter(f => f.selected && !f.problem);
+  if (!chosen.length) { toast('Tick at least one file to allow.', true); return; }
+
+  if (ctx === 'new') {
+    chosen.forEach(f => { pendingProjectFiles[f.path] = f.content; });
+    renderPendingFiles();
+    if (!($('newProjDesc').value || '').trim()) $('newProjDesc').value = pr.prompt.slice(0, 120);
+    aiProposals.new = null; renderAiProposal('new');
+    toast(chosen.length + ' file' + (chosen.length === 1 ? '' : 's') + ' added to the new repo. Review them below, then Create.');
+    return;
+  }
+
+  const r = applyAiFilesToProject(pr.projectId, chosen, pr.prompt);
+  if (r.mode === 'denied' || r.mode === 'missing') { toast('You cannot add files to this project.', true); return; }
+  aiProposals.project = null;
+  const pid = pr.projectId;
+  if (server.on && server.projectId === pid) runPreview();
+  openProjectDetail(pid, true);
+  toast(r.mode === 'review'
+    ? r.applied + ' file(s) sent to the owner for review.'
+    : r.applied + ' file' + (r.applied === 1 ? '' : 's') + ' added to the repo. A snapshot was saved first, so you can roll back.');
+}
+
+/* ----- Settings ---------------------------------------------------------------------- */
+
+function renderAiSettings() {
+  const model = $('aiModelInput'), status = $('aiSettingsStatus'), key = $('aiKeyInput');
+  if (model) model.value = DB.prefs().aiModel || '';
+  if (key) key.value = '';   // never write a saved key back into the page
+  if (status) {
+    status.style.color = 'var(--text-tertiary)';
+    status.textContent = aiPersonalKey() ? 'A personal key is saved in this browser.'
+      : (aiBackendStatus && aiBackendStatus.enabled) ? 'No personal key; using the key set on this site\'s backend.' : 'No key saved.';
+  }
+  paintAiStatus();
+}
+
+function saveAiSettingsUI() {
+  const keyEl = $('aiKeyInput'), modelEl = $('aiModelInput');
+  const key = ((keyEl && keyEl.value) || '').trim();
+  const model = ((modelEl && modelEl.value) || '').trim();
+  if (key && !/^sk-or-/.test(key)) { toast('That does not look like an OpenRouter key (they start with sk-or-).', true); return; }
+  if (model && !/^[\w.\-\/:@]+$/.test(model)) { toast('Model names look like openrouter/auto or openai/gpt-4o-mini.', true); return; }
+  const p = DB.prefs();
+  if (key) p.openrouterKey = key;
+  p.aiModel = model;
+  DB.savePrefs(p);
+  renderAiSettings();
+  toast(key ? 'AI key saved on this device.' : 'AI settings saved.');
+}
+
+function clearAiKeyUI() {
+  const p = DB.prefs(); delete p.openrouterKey; DB.savePrefs(p);
+  renderAiSettings();
+  toast('Key removed from this browser.');
+}
+
+async function testAiUI() {
+  const status = $('aiSettingsStatus');
+  if (status) { status.textContent = 'Asking the model…'; status.style.color = 'var(--text-tertiary)'; }
+  await refreshAiStatus();
+  try {
+    const r = await callAI([{ role: 'user', content: 'Reply with the single word: ready' }]);
+    if (status) { status.textContent = '✅ Works. The model said: ' + r.content.slice(0, 40); status.style.color = 'var(--accent-green)'; }
+  } catch (e) {
+    if (status) { status.textContent = '❌ ' + e.message; status.style.color = 'var(--accent-coral)'; }
+  }
+}
+
+/* ===========================================================================
+   DELETING A PROJECT (repo)
+=========================================================================== */
+
+function renderProjectDangerZone(p, isOwner) {
+  const zone = $('projectDangerZone');
+  if (zone) zone.style.display = isOwner ? 'block' : 'none';
+}
+
+async function deleteProjectUI(projectId) {
+  if (!requireAuth()) return;
+  const p = DB.data().projects[projectId || currentProjectId];
+  if (!p) return;
+  if (p.ownerId !== myId()) { toast('Only the owner can delete a project.', true); return; }
+
+  const typed = prompt('This permanently deletes "' + p.name + '", with its files, versions and members'
+    + (p.deployedUrl ? ' and its live site' : '') + '.\n\nType the project name to confirm:');
+  if (typed === null) return;
+  if (typed.trim() !== p.name) { toast('That did not match the project name, so nothing was deleted.', true); return; }
+
+  const onCloud = !!(p.backendId && API_BASE);
+  if (onCloud) {
+    const r = await DB.server('/api/projects/' + p.backendId, { method: 'DELETE', timeoutMs: 60000 });
+    if (!r) { toast('Could not reach the backend, so nothing was deleted. Try again.', true); return; }
+  }
+
+  const d = DB.data();
+  delete d.projects[p.id];
+  DB.saveData(d);
+  const prefs = DB.prefs();
+  prefs.recentBuilds = (prefs.recentBuilds || []).filter(r => r.projectId !== p.id);
+  DB.savePrefs(prefs);
+  if (terminalProjectId === p.id) terminalProjectId = null;
+  if (server.projectId === p.id) { stopPreview(); server.projectId = null; }
+  if (currentProjectId === p.id) currentProjectId = null;
+
+  toast('"' + p.name + '" deleted.' + (p.backendId && !API_BASE ? ' Its cloud copy could not be reached and may still exist.' : ''));
+  openKnightPage('projectsPage');
+}
+
+
 /* ---------------------------------------------------------------------------
    27. BOOT
 --------------------------------------------------------------------------- */
@@ -5305,6 +5778,8 @@ Object.assign(window, {
   openTerminalWorkspace, setTermWorkspaceTab, runTermDebugScan, runNetworkCheckUI,
   saveCloudConfigUI, testCloudConnectionUI, clearTermRuntimeLog,
   openFeedbackUI, submitFeedbackUI, setFeedbackRating, deleteDeployedSiteUI,
+  generateAiProjectFilesUI, generateNewProjectFilesUI, toggleAiFile, toggleAiPreview, discardAiProposal,
+  applyAiProposalUI, saveAiSettingsUI, clearAiKeyUI, testAiUI, deleteProjectUI,
   openGithubImportUI, importGithubRepoUI,
   setNotifFilter, markAllNotificationsRead, deleteNotification,
 });

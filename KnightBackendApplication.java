@@ -20,6 +20,10 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import javax.sql.DataSource;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -582,6 +586,7 @@ class Notification {
 
 @Repository interface ChangeRepo extends JpaRepository<ChangeRequest, Long> {
     List<ChangeRequest> findByProjectIdAndStatus(Long projectId, String status);
+    List<ChangeRequest> findByProjectId(Long projectId);
 }
 
 @Repository interface NotifRepo extends JpaRepository<Notification, Long> {
@@ -1164,10 +1169,27 @@ class DeployController {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Project not found."));
         if (!svc.canEditDirectly(p, u))
             throw new ApiException(HttpStatus.FORBIDDEN, "Only owners and editors can undeploy.");
-        sites.deleteByProjectId(id);
+        sites.findByProjectId(id).ifPresent(sites::delete);
         p.setDeployedUrl("");
         svc.projects().save(p);
         return ResponseEntity.ok(Map.of("status", "undeployed"));
+    }
+
+    /** Delete a whole project (owner only): its deployed site, members, versions and change requests too. */
+    @DeleteMapping("/api/projects/{id}")
+    ResponseEntity<Map<String, String>> deleteProject(@RequestHeader(value = "Authorization", required = false) String h,
+                                                      @PathVariable Long id) {
+        KnightUser u = auth.requireUser(h);
+        Project p = svc.projects().findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Project not found."));
+        if (!"owner".equals(svc.roleOf(p, u)))
+            throw new ApiException(HttpStatus.FORBIDDEN, "Only the owner can delete a project.");
+        sites.findByProjectId(id).ifPresent(sites::delete);
+        svc.members().findByProjectId(id).forEach(m -> svc.members().delete(m));
+        svc.versions().findByProjectIdOrderByIdAsc(id).forEach(v -> svc.versions().delete(v));
+        svc.changes().findByProjectId(id).forEach(c -> svc.changes().delete(c));
+        svc.projects().delete(p);
+        return ResponseEntity.ok(Map.of("status", "deleted"));
     }
 
     /** The actual live site. No auth header, no JSON — a real page for a real browser tab. */
@@ -1514,3 +1536,120 @@ class FeedbackController {
 }
 
 class FeedbackRequest { public String category, message; public Integer rating; }
+
+
+/* -------------------------------------------------------------------------
+   AI ASSISTANT PROXY (OpenRouter)
+   The OpenRouter key lives ONLY in this server's environment:
+       OPENROUTER_API_KEY   required to turn AI on
+       OPENROUTER_MODEL     optional, default "openrouter/auto"
+       AI_HOURLY_LIMIT      optional, requests per user per hour, default 20
+   The browser never sees the key; it calls /api/ai/chat as a signed-in user.
+   Anything shipped in the website's files is readable by every visitor, so a
+   key must never be put there.
+   ------------------------------------------------------------------------- */
+@RestController
+@RequestMapping("/api/ai")
+class AiController {
+    private final AuthService auth;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private final Map<Long, Deque<Long>> recent = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @org.springframework.beans.factory.annotation.Value("${OPENROUTER_API_KEY:}")
+    private String apiKey;
+    @org.springframework.beans.factory.annotation.Value("${OPENROUTER_MODEL:openrouter/auto}")
+    private String model;
+    @org.springframework.beans.factory.annotation.Value("${AI_HOURLY_LIMIT:20}")
+    private int hourlyLimit;
+
+    AiController(AuthService auth) { this.auth = auth; }
+
+    @GetMapping("/status")
+    ResponseEntity<Map<String, Object>> status(@RequestHeader(value = "Authorization", required = false) String h) {
+        auth.requireUser(h);
+        return ResponseEntity.ok(Map.of("enabled", !apiKey.isBlank(), "model", model, "hourlyLimit", hourlyLimit));
+    }
+
+    @PostMapping("/chat")
+    ResponseEntity<Map<String, Object>> chat(@RequestHeader(value = "Authorization", required = false) String h,
+                                             @RequestBody AiChatRequest req) {
+        KnightUser u = auth.requireUser(h);
+        if (apiKey.isBlank())
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI is not set up on this server (OPENROUTER_API_KEY is empty).");
+        if (req.messages == null || req.messages.isEmpty())
+            throw new ApiException(HttpStatus.BAD_REQUEST, "No messages were sent.");
+
+        int total = 0;
+        for (Map<String, String> m : req.messages) {
+            String role = m.get("role"), content = m.get("content");
+            boolean okRole = "system".equals(role) || "user".equals(role) || "assistant".equals(role);
+            if (!okRole || content == null)
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Each message needs a valid role and content.");
+            total += content.length();
+        }
+        if (total > 150_000)
+            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "That request is too large for the AI (150,000 characters max).");
+        enforceLimit(u.getId());
+
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("model", model);
+            body.put("messages", req.messages);
+            body.put("max_tokens", 8000);
+            HttpRequest request = HttpRequest.newBuilder(URI.create("https://openrouter.ai/api/v1/chat/completions"))
+                    .timeout(Duration.ofSeconds(120))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .header("X-Title", "Knight")
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                    .build();
+            HttpResponse<String> res = http.send(request, HttpResponse.BodyHandlers.ofString());
+            Map<?, ?> root = mapper.readValue(res.body(), Map.class);
+
+            if (res.statusCode() != 200)
+                throw new ApiException(HttpStatus.BAD_GATEWAY,
+                        "AI provider error (" + res.statusCode() + "): " + upstreamError(root));
+
+            Object choices = root.get("choices");
+            if (!(choices instanceof List) || ((List<?>) choices).isEmpty())
+                throw new ApiException(HttpStatus.BAD_GATEWAY, "The AI returned no answer.");
+            Map<?, ?> choice = (Map<?, ?>) ((List<?>) choices).get(0);
+            Map<?, ?> message = (Map<?, ?>) choice.get("message");
+            String content = (message == null || message.get("content") == null) ? "" : String.valueOf(message.get("content"));
+            Object finish = choice.get("finish_reason");
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("content", content);
+            out.put("finishReason", finish == null ? "" : String.valueOf(finish));
+            out.put("model", String.valueOf(root.get("model")));
+            return ResponseEntity.ok(out);
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not reach the AI provider: " + e.getMessage());
+        }
+    }
+
+    /** Per-user sliding window, so one account cannot burn through your credits. */
+    private void enforceLimit(Long userId) {
+        long now = System.currentTimeMillis();
+        Deque<Long> q = recent.computeIfAbsent(userId, k -> new java.util.concurrent.ConcurrentLinkedDeque<>());
+        while (!q.isEmpty() && q.peekFirst() < now - 3_600_000L) q.pollFirst();
+        if (q.size() >= hourlyLimit)
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
+                    "AI limit reached (" + hourlyLimit + " requests per hour). Try again later.");
+        q.addLast(now);
+    }
+
+    private String upstreamError(Map<?, ?> root) {
+        Object err = root == null ? null : root.get("error");
+        if (err instanceof Map) {
+            Object m = ((Map<?, ?>) err).get("message");
+            if (m != null) return String.valueOf(m);
+        }
+        return "unknown error";
+    }
+}
+
+class AiChatRequest { public List<Map<String, String>> messages; }

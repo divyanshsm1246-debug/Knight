@@ -31,3 +31,19 @@ capability-restricted Ably key, commit, and Cloudflare redeploys automatically.
 Everyone who opens the site is now connected.
 
 The first account created on a fresh database becomes the site owner.
+
+## AI assistant (optional)
+Open a project -> **AI** tab, or use the AI box when creating a repo. The AI proposes files, you
+tick the ones you want and click **Allow**; only then do they enter the repo (owners/editors
+write directly after a rollback snapshot; contributors' files go to review).
+- Everyone on the site: set `OPENROUTER_API_KEY` in Render (optionally `OPENROUTER_MODEL`, `AI_HOURLY_LIMIT`).
+  The key stays on the server; each user is limited per hour.
+- Just you: paste your own OpenRouter key in Settings & Guides -> AI Assistant (saved only in your browser).
+- Never put a key in `config.js` or any file in `frontend/`: every visitor can read those.
+
+## Deleting
+A project's owner can delete it from the project's Overview tab (type the name to confirm) or the
+trash button on its card. If it is deployed on Knight Cloud, the live site is deleted with it.
+
+## Tests
+`node tests/run-tests.js` runs the app's logic checks (no install needed).
