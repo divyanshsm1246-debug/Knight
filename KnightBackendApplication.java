@@ -627,6 +627,38 @@ class AuthService {
         }
     }
 
+    private static final int PBKDF2_ITERATIONS = 120_000;
+
+    /** The browser sends SHA-256(password + email). Storing that as-is would turn a database leak into a pile of
+        working logins (anyone could replay the hash), so the server hashes it again with a random salt. */
+    String hashSecret(String clientHash) {
+        try {
+            byte[] salt = new byte[16];
+            random.nextBytes(salt);
+            return Base64.getEncoder().encodeToString(salt) + ":" + Base64.getEncoder().encodeToString(pbkdf2(clientHash, salt));
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not hash the credential", e);
+        }
+    }
+
+    boolean verifySecret(String clientHash, String stored) {
+        try {
+            if (clientHash == null || stored == null) return false;
+            String[] parts = stored.split(":");
+            if (parts.length != 2) return false;
+            byte[] salt = Base64.getDecoder().decode(parts[0]);
+            byte[] expected = Base64.getDecoder().decode(parts[1]);
+            return MessageDigest.isEqual(expected, pbkdf2(clientHash, salt));   // constant-time compare
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private byte[] pbkdf2(String secret, byte[] salt) throws Exception {
+        javax.crypto.spec.PBEKeySpec spec = new javax.crypto.spec.PBEKeySpec(secret.toCharArray(), salt, PBKDF2_ITERATIONS, 256);
+        return javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();
+    }
+
     String newSocialId() {
         String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         String candidate;
@@ -647,7 +679,7 @@ class AuthService {
 
         KnightUser u = new KnightUser(key,
                 (username == null || username.isBlank()) ? key.split("@")[0] : username.trim(),
-                passHash, newSocialId());
+                hashSecret(passHash), newSocialId());
         // First account created on a fresh deployment becomes the admin.
         u.setAdmin(users.count() == 0);
         return users.save(u);
@@ -656,7 +688,7 @@ class AuthService {
     KnightUser signIn(String email, String passHash) {
         KnightUser u = users.findByEmailIgnoreCase(email.toLowerCase().trim())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No account found for that email."));
-        if (!u.getPassHash().equals(passHash))
+        if (!verifySecret(passHash, u.getPassHash()))
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Incorrect passphrase.");
         u.setLastSeen(Instant.now());
         return users.save(u);
@@ -666,7 +698,7 @@ class AuthService {
     KnightUser createGuest() {
         String email = "guest-" + System.currentTimeMillis() + "@knight.local";
         KnightUser u = new KnightUser(email, "guest_" + (users.count() + 1),
-                sha256(UUID.randomUUID().toString()), newSocialId());
+                hashSecret(sha256(UUID.randomUUID().toString())), newSocialId());
         u.setGuest(true);
         return users.save(u);
     }
@@ -1078,9 +1110,22 @@ class KnightController {
         return ResponseEntity.ok(notifs.save(n));
     }
 
+    @org.springframework.beans.factory.annotation.Value("${DATABASE_URL:}")
+    private String databaseUrl;
+    @org.springframework.beans.factory.annotation.Value("${OPENROUTER_API_KEY:}")
+    private String openRouterKey;
+
+    /** Used by the app's System Status panel. Never returns a secret, only whether things are set. */
     @GetMapping("/health")
     ResponseEntity<Map<String, Object>> health() {
-        return ResponseEntity.ok(Map.of("status", "up", "time", Instant.now().toString()));
+        boolean persistent = !databaseUrl.isBlank();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("status", "up");
+        out.put("time", Instant.now().toString());
+        out.put("database", persistent ? "Postgres" : "local file (H2)");
+        out.put("persistent", persistent);
+        out.put("ai", !openRouterKey.isBlank());
+        return ResponseEntity.ok(out);
     }
 }
 

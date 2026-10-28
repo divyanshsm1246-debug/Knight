@@ -1035,6 +1035,7 @@
   <div class="nearby-toggle-row">
     <button id="nearbyToggleBtn" class="nav-cta btn-golden" onclick="toggleNearbyLive()">Go Live</button>
     <span id="nearbyStatusText" class="nearby-status-text">Off — your location isn't being shared.</span>
+    <button class="nav-cta" onclick="openKnightPage('settingsPage')">⚙ Nearby settings</button>
   </div>
   <div id="nearbyList" class="nearby-list"></div>
 </div>
@@ -1047,9 +1048,10 @@
     <h2 id="nearbyPromptTitle">You Wanna Be Friends With</h2>
     <p id="nearbyPromptName" class="nearby-prompt-name"></p>
     <p id="nearbyPromptDistance" class="nearby-prompt-distance"></p>
+    <p id="nearbyPromptNote" style="font-size:.74rem; color:var(--text-tertiary); margin:-14px 0 16px; line-height:1.5;"></p>
     <div class="nearby-prompt-actions">
       <button class="nav-cta" onclick="dismissNearbyPrompt()">Not Now</button>
-      <button class="submit-btn" onclick="acceptNearbyPrompt()">Add Friend</button>
+      <button class="submit-btn" id="nearbyPromptAcceptBtn" onclick="acceptNearbyPrompt()">Add Friend</button>
     </div>
   </div>
 </div>
@@ -1059,6 +1061,15 @@
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('settingsPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
     <div class="page-title">Settings &amp; Guides</div>
+  </div>
+
+  <!-- ===== System Status — what is connected, what is not, and why ===== -->
+  <div class="cloud-config-card" style="margin-bottom:30px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+      <h3>System Status</h3>
+      <button class="nav-cta" onclick="renderSystemStatus()">Run checks</button>
+    </div>
+    <div id="systemStatusList" class="status-list"></div>
   </div>
 
   <!-- ===== Cloud Connection — the ONE place that turns Knight multiplayer ===== -->
@@ -1123,6 +1134,63 @@
       <button class="nav-cta" style="color:var(--accent-coral);" onclick="clearAiKeyUI()">Remove Key</button>
       <span id="aiSettingsStatus" style="font-size:.78rem; color:var(--text-tertiary);"></span>
     </div>
+  </div>
+
+  <!-- ===== Nearby & Location ===== -->
+  <div class="cloud-config-card" style="margin-bottom:30px;">
+    <h3 style="margin-bottom:4px;">Nearby &amp; Location</h3>
+    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">
+      Choose who can find you, how precisely, and for how long. Nothing is shared until you tap <b>Go Live</b> on the Social page.
+    </p>
+    <div class="cfg-grid">
+      <div class="cfg-row">
+        <label class="font-mono">Search radius <b id="nearbyRadiusLabel">300 m</b></label>
+        <input type="range" id="nearbyRadiusInput" min="25" max="2000" step="25" oninput="saveNearbyConfigUI()">
+      </div>
+      <div class="cfg-row">
+        <label class="font-mono">Who can find me</label>
+        <select id="nearbyVisibilitySelect" onchange="saveNearbyConfigUI()">
+          <option value="everyone">Everyone nearby</option>
+          <option value="nobody">Nobody (I can see others, they cannot see me)</option>
+        </select>
+      </div>
+      <div class="cfg-row">
+        <label class="font-mono">Show me</label>
+        <select id="nearbyShowSelect" onchange="saveNearbyConfigUI()">
+          <option value="everyone">Everyone nearby</option>
+          <option value="friends">Only people who are already my friends</option>
+        </select>
+      </div>
+      <div class="cfg-row">
+        <label class="font-mono">Location I share</label>
+        <select id="nearbyPrecisionSelect" onchange="saveNearbyConfigUI()">
+          <option value="exact">Exact</option>
+          <option value="approx">Approximate (within about 100 m)</option>
+        </select>
+      </div>
+      <div class="cfg-row">
+        <label class="font-mono">Send my position to the server every</label>
+        <select id="nearbyReportSelect" onchange="saveNearbyConfigUI()">
+          <option value="5">5 seconds</option><option value="10">10 seconds</option>
+          <option value="20">20 seconds</option><option value="30">30 seconds</option>
+        </select>
+      </div>
+      <div class="cfg-row">
+        <label class="font-mono">Stop sharing automatically after</label>
+        <select id="nearbyAutoStopSelect" onchange="saveNearbyConfigUI()">
+          <option value="0">Never</option><option value="15">15 minutes</option>
+          <option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option>
+        </select>
+      </div>
+      <label class="cfg-check"><input type="checkbox" id="nearbyHighAccToggle" onchange="saveNearbyConfigUI()"> Use precise GPS (more battery)</label>
+      <label class="cfg-check"><input type="checkbox" id="nearbyPopupToggle" onchange="saveNearbyConfigUI()"> Pop up "wanna be friends?" suggestions</label>
+    </div>
+    <p style="font-size:.74rem; color:var(--text-tertiary); margin:10px 0 14px;">Precise GPS and the auto-stop timer apply the next time you tap Go Live.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="nav-cta btn-golden" onclick="runNearbyDiagnosticsUI()">Run nearby check</button>
+      <button class="nav-cta" style="color:var(--accent-coral);" onclick="forgetNearbyDataUI()">Forget my shared location</button>
+    </div>
+    <div id="nearbyDiagList" class="status-list" style="margin-top:14px;"></div>
   </div>
 
   <div class="shortcut-category-label">Device Optimization</div>
@@ -1218,6 +1286,14 @@
   <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px; max-width:560px;">Found a bug or have an idea? Tell us — it takes ten seconds.</p>
   <button class="nav-cta btn-golden" style="margin-bottom:14px;" onclick="openFeedbackUI()">Send Feedback</button>
   <div id="feedbackHistory" style="display:flex; flex-direction:column; gap:6px; max-width:560px; margin-bottom:26px;"></div>
+
+  <div class="shortcut-category-label">Configuration backup</div>
+  <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px; max-width:560px;">Save your preferences to a file and load them on another device. API keys are never included.</p>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:26px;">
+    <button class="nav-cta" onclick="exportSettingsUI()">Export settings</button>
+    <button class="nav-cta" onclick="document.getElementById('settingsImportInput').click()">Import settings</button>
+    <input type="file" id="settingsImportInput" accept="application/json,.json" style="display:none;" onchange="importSettingsUI(this)">
+  </div>
 
   <div class="shortcut-category-label">Account</div>
   <button class="nav-cta" style="color:var(--accent-coral);" onclick="signOutUI()">Sign Out</button>
