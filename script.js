@@ -395,7 +395,7 @@ async function handleAuthSubmit(e) {
 
 function signOutUI() {
   stopPreview();
-  disconnectAbly();
+  disconnectAbly(); if (socket) { try { socket.close(); } catch {} socket = null; }
   if (socket) { try { socket.close(); } catch {} socket = null; }
   document.body.classList.remove('is-authed');
   clearSession();
@@ -749,7 +749,7 @@ function closeModal(id) { const m = $(id); if (m) m.classList.remove('active'); 
 function enterApp(user, { fresh = false } = {}) {
   CURRENT = user;
   document.body.classList.add('is-authed');
-  connectAbly();
+  connectAbly(); connectKnightSocket();
 
   // Touch lastSeen
   const users = DB.users();
@@ -1611,7 +1611,7 @@ function renderProjectActivity(p) {
   (p.versions || []).forEach(v => events.push({ at: v.at, text: v.label + ' cut — ' + (v.note || 'no description') }));
   (p.changeRequests || []).forEach(c => {
     const by = userById(c.by);
-    events.push({ at: c.at, text: (by ? by.username : 'someone') + ' proposed a change to ' + c.file
+    events.push({ at: c.at, text: (c.viaAi ? 'Knight AI (for ' + (by ? by.username : 'a contributor') + ')' : (by ? by.username : 'someone')) + ' proposed a change to ' + c.file
       + (c.status !== 'pending' ? ' (' + c.status + ')' : ' — awaiting review') });
   });
   events.sort((a, b) => b.at - a.at);
@@ -1923,7 +1923,7 @@ function renderChangeRequests(p, canReview) {
         return `<div style="background:rgba(0,0,0,.25);border:1px solid var(--panel-border);border-radius:14px;padding:14px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
             <div><b>${esc(c.file)}</b>
-            <div style="font-size:.74rem;color:var(--text-tertiary);">by ${esc(by ? by.username : 'unknown')} · ${timeAgo(c.at)}</div></div>
+            <div style="font-size:.74rem;color:var(--text-tertiary);">by ${c.viaAi ? 'Knight AI' + (by ? ' · for ' + esc(by.username) : '') : esc(by ? by.username : 'unknown')} · ${timeAgo(c.at)}</div></div>
             ${canReview ? `<div style="display:flex;gap:8px;">
               <button class="nav-cta btn-golden" onclick="reviewChange('${c.id}',true)">Accept</button>
               <button class="nav-cta" style="color:var(--accent-coral)" onclick="reviewChange('${c.id}',false)">Reject</button></div>` : ''}
@@ -2247,6 +2247,7 @@ async function ablyOnlineUserIds() {
 }
 
 let socket = null;
+let socketOnline = new Set();
 let socketRoom = null;
 let socketReconnectTimer = null;
 
@@ -2267,9 +2268,16 @@ function connectKnightSocket() {
     return null;
   }
 
-  socket.onopen = () => { if (socketRoom) socket.send(JSON.stringify({ type: 'join', room: socketRoom })); paintCommServerPill(); };
+  socket.onopen = () => {
+    if (socketRoom) socket.send(JSON.stringify({ type: 'join', room: socketRoom }));
+    paintCommServerPill();
+    clearInterval(socket._hb);   // keep-alive so proxies and browsers never close an idle socket
+    const s = socket;
+    s._hb = setInterval(() => { if (s.readyState === 1) s.send(JSON.stringify({ type: 'ping' })); }, 25000);
+  };
   socket.onmessage = (evt) => { let msg; try { msg = JSON.parse(evt.data); } catch { return; } handleSocketMessage(msg); };
   socket.onclose = () => {
+    if (socket) clearInterval(socket._hb);
     socket = null; paintCommServerPill();
     clearTimeout(socketReconnectTimer);
     socketReconnectTimer = setTimeout(connectKnightSocket, 4000);
@@ -2290,8 +2298,7 @@ function paintCommServerPill() {
   const pill = $('commServerPill');
   if (!pill) return;
   const live = ablyReady() || socketReady();
-  const via = ablyReady() ? 'Ably' : socketReady() ? 'self-hosted' : null;
-  pill.textContent = live ? 'live — real-time (' + via + ')' : ((ABLY_KEY || WS_BASE) ? 'connecting…' : 'offline (device-only)');
+  pill.textContent = live ? 'Live' : ((ABLY_KEY || WS_BASE) ? 'Connecting…' : 'Offline');
   pill.classList.toggle('is-on', live);
 }
 
@@ -2325,6 +2332,7 @@ function handleSocketMessage(msg) {
   }
 
   if (msg.type === 'presence') {
+    socketOnline = new Set(msg.online || []);
     renderCommPage();
     return;
   }
@@ -2360,7 +2368,7 @@ function threadKey(a, b) { return [a, b].sort().join('::'); }
 async function renderCommPage() {
   paintCommServerPill();
   const friends = (me().friends || []).map(userById).filter(Boolean);
-  const onlineIds = ablyReady() ? await ablyOnlineUserIds() : [];
+  const onlineIds = ablyReady() ? await ablyOnlineUserIds() : Array.from(socketOnline);
 
   $('commFriendsList').innerHTML = friends.length
     ? friends.map(f => {
@@ -5086,7 +5094,7 @@ const AI_MAX_TOTAL_CHARS = 1500 * 1024;
 const AI_CONTEXT_PER_FILE = 12000;
 const AI_CONTEXT_TOTAL = 60000;
 
-const AI_SYSTEM_PROMPT = `You are Knight's coding assistant, working inside a project repository.
+const AI_SYSTEM_PROMPT = `You are Knight AI, a senior software engineer working inside a project repository. Write production-quality, complete, working code: handle errors and edge cases, validate input, keep it accessible and responsive, and structure it cleanly with clear names and brief comments only where they help. Build real features, never placeholders or TODOs. For larger requests, split the work into sensible files and make them work together.
 
 When you create or change files, output EACH file in exactly this format:
 
@@ -5439,7 +5447,7 @@ async function runAiGenerate(ctx) {
     toast(e.message || 'The AI request failed.', true);
   } finally {
     aiBusy = false;
-    if (btn) { btn.disabled = false; btn.textContent = ctx === 'new' ? '✨ Generate files' : '✨ Generate'; }
+    if (btn) { btn.disabled = false; btn.textContent = ctx === 'new' ? 'Knight_Ai · Generate files' : 'Knight_Ai · Generate'; }
   }
 }
 function generateAiProjectFilesUI() { return runAiGenerate('project'); }
@@ -5457,10 +5465,10 @@ function applyAiFilesToProject(projectId, files, promptText) {
     // Same rule as any contributor edit: it goes to review, never straight in.
     files.forEach(f => p.changeRequests.push({
       id: uid('cr'), by: myId(), file: f.path, before: p.files[f.path] ?? '', after: f.content,
-      status: 'pending', at: Date.now(),
+      status: 'pending', at: Date.now(), viaAi: true,
     }));
     DB.saveData(d);
-    pushNotification(p.ownerId, 'New Change Request', me().username + ' proposed ' + files.length + ' AI-written file(s) for ' + p.name + '.', '#/project/' + p.id);
+    pushNotification(p.ownerId, 'New Change Request', 'Knight AI proposed ' + files.length + ' file(s) for ' + p.name + ', requested by ' + me().username + '.', '#/project/' + p.id);
     return { applied: files.length, mode: 'review' };
   }
   if (role !== 'owner' && role !== 'editor') return { applied: 0, mode: 'denied' };
@@ -5678,32 +5686,10 @@ function loadCloudConfig() {
   WS_BASE = clean(pick(p.wsBase, site.wsBase));
   WS_SERVER_KEY = pick(p.wsServerKey, site.wsServerKey) || 'knight_ws_7f3a9c2e1b8d4f6a0c5e9b2d7a1f4c8e';
   ABLY_KEY = pick(p.ablyKey, site.ablyKey) || null;
-}
-
-async function saveCloudConfigUI() {
-  const apiBase = ($('cloudApiBaseInput').value || '').trim();
-  const wsBase = ($('cloudWsBaseInput').value || '').trim();
-  const wsKey = ($('cloudWsKeyInput').value || '').trim();
-  const ablyKey = ($('cloudAblyKeyInput').value || '').trim();
-
-  if (apiBase && !/^https?:\/\//i.test(apiBase)) { toast('API URL must start with http:// or https://', true); return; }
-  if (wsBase && !/^wss?:\/\//i.test(wsBase)) { toast('WebSocket URL must start with ws:// or wss://', true); return; }
-  if (ablyKey && !/^[\w-]+\.[\w-]+:[\w-]+$/.test(ablyKey)) { toast('That doesn\'t look like a valid Ably key (expected appId.keyId:secret).', true); return; }
-
-  const p = DB.prefs();
-  p.apiBase = apiBase; p.wsBase = wsBase; p.wsServerKey = wsKey; p.ablyKey = ablyKey;
-  DB.savePrefs(p);
-  loadCloudConfig();   // takes effect immediately, live, in this tab
-
-  // reconnect under the new config if something was already open
-  if (socket) { try { socket.close(); } catch {} socket = null; }
-  disconnectAbly();
-  connectAbly();
-
-  renderCloudConfigStatus();
-  toast('Cloud connection saved.');
-
-  if (API_BASE) await testCloudConnectionUI();
+  // Built-in multiplayer: the Java backend serves the WebSocket itself, so no extra URL is needed.
+  // Running the site on your own computer? Default to the local backend (change the port if yours differs).
+  if (!API_BASE && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) API_BASE = 'http://localhost:8080';
+  if (!WS_BASE && !ABLY_KEY && API_BASE) WS_BASE = API_BASE.replace(/^http/i, 'ws');
 }
 
 async function testCloudConnectionUI() {
@@ -5715,7 +5701,7 @@ async function testCloudConnectionUI() {
   if (WS_BASE) parts.push('WebSocket server set');
 
   if (!API_BASE) {
-    say(parts.length ? parts.join(' · ') + ' — no Java backend URL, so accounts, projects, and deploy stay local.' : 'Nothing configured — running fully local.');
+    say('Running on this device only. Multiplayer turns on once the site is connected to its server.');
     return;
   }
 
@@ -5726,12 +5712,12 @@ async function testCloudConnectionUI() {
     say(i === 1 ? 'Checking ' + API_BASE + '…' : 'Waking the backend up (free hosts sleep when idle) — try ' + i + '/' + attempts + '…');
     const result = await DB.server('/api/health', { timeoutMs: 12000 });
     if (result) {
-      say('✅ Backend reachable' + (parts.length ? ' · ' + parts.join(' · ') : ''), 'var(--accent-green)');
+      say('Connected. Multiplayer is live.', 'var(--accent-green)');
       return;
     }
     if (i < attempts) await new Promise(r => setTimeout(r, 6000));
   }
-  say('❌ Could not reach that backend. Check the URL, that the service is running, and that its CORS allows this site (KNIGHT_ALLOWED_ORIGINS).', 'var(--accent-coral)');
+  say('Could not reach the server right now. It may be waking up; try again in a minute.', 'var(--accent-coral)');
 }
 
 function renderCloudConfigStatus() {
@@ -6435,10 +6421,43 @@ Object.assign(window, {
   openPreviewFor, saveDeployUrlFor, handleNewProjectFiles,
   loadTermFile, restoreTermRun, forkProjectUI, openVersionDiffUI, scanVersionsForErrorsUI,
   openTerminalWorkspace, setTermWorkspaceTab, runTermDebugScan, runNetworkCheckUI,
-  saveCloudConfigUI, testCloudConnectionUI, clearTermRuntimeLog,
+  testCloudConnectionUI, clearTermRuntimeLog, openInfoPage, closeInfoPage, aboutAiAsk,
   openFeedbackUI, submitFeedbackUI, setFeedbackRating, deleteDeployedSiteUI,
   generateAiProjectFilesUI, generateNewProjectFilesUI, toggleAiFile, toggleAiPreview, discardAiProposal,
   applyAiProposalUI, saveAiSettingsUI, clearAiKeyUI, testAiUI, savePuterSettingsUI, testPuterUI, puterConnectUI, deleteProjectUI,
   openGithubImportUI, importGithubRepoUI,
   setNotifFilter, markAllNotificationsRead, deleteNotification,
 });
+
+
+/* ---- Footer info pages (usable signed in or out) + Knight AI try-it box ---- */
+function openInfoPage(id) {
+  $$('.knight-page').forEach(p => p.classList.remove('active'));
+  const nf = $('notFoundPage'); if (nf) nf.classList.remove('active');
+  const a = $('auth'); if (a) a.style.display = 'none';
+  $('dashboard').style.display = 'none';
+  $(id).classList.add('active');
+  window.scrollTo(0, 0);
+}
+function closeInfoPage() {
+  $$('.knight-page').forEach(p => p.classList.remove('active'));
+  const a = $('auth'); if (a) a.style.display = '';
+  if (me()) goHome();
+}
+async function aboutAiAsk() {
+  const q = ($('aboutAiPrompt').value || '').trim();
+  const st = $('aboutAiStatus'), out = $('aboutAiOut');
+  if (!q) { toast('Type a question first.', true); return; }
+  try {
+    st.textContent = 'Connecting to Puter…';
+    await puterSignIn();                      // direct from the click, so the popup is allowed
+    st.textContent = 'Thinking…'; out.textContent = '';
+    const r = await puter.ai.chat([{ role: 'user', content: q }]);   // goes through puter-guard
+    const t = typeof r === 'string' ? r : (r && r.message && (typeof r.message.content === 'string' ? r.message.content : (r.message.content || []).map(x => x.text || '').join(''))) || '';
+    out.textContent = t || 'No answer came back.';
+    st.textContent = '';
+  } catch (e) {
+    st.textContent = '';
+    toast((e && e.message) || 'Knight AI could not answer. Allow the Puter sign-in popup and try again.', true);
+  }
+}
