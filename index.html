@@ -1148,6 +1148,13 @@
       Your prompts go to puter.com instead of OpenRouter when this is used; turn it off if you'd rather AI stay off until a key is added.
       Before anything is sent, <code>puter-guard.js</code> strips text that looks like an API key, password or connection string — a safety net, not a guarantee, so still avoid pasting real secrets into chat.
     </p>
+    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">
+      One extra step the first time: Puter's AI is free but tied to a free Puter account, and signing in opens a small popup — browsers only allow that from a direct click, so click <b>Connect Puter</b> once below (allow the popup if your browser asks). After that it works everywhere in Knight, including "Hey Knight" by voice, with no further popups.
+    </p>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+      <button class="submit-btn" style="width:auto; padding:11px 24px;" onclick="puterConnectUI()">Connect Puter</button>
+      <span id="puterConnectStatus" style="font-size:.78rem; color:var(--text-tertiary);"></span>
+    </div>
     <div class="field">
       <label class="font-mono">Model (optional)</label>
       <input type="text" id="puterModelInput" placeholder="leave blank for Puter's default">
