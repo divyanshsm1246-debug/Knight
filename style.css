@@ -1329,27 +1329,111 @@ body.device-smartphone .server-toggle{ right:14px; bottom:14px; padding:10px 14p
 }
 .card-delete-btn:hover{ background:rgba(217,108,91,.14); border-color:var(--accent-coral); }
 
-/* ============================================================
-   STATUS PANELS + DETAILED CONFIGURATION
-   ============================================================ */
-.status-list{ display:flex; flex-direction:column; gap:2px; }
-.status-row{ display:flex; gap:12px; align-items:flex-start; padding:9px 2px; border-bottom:1px solid rgba(255,255,255,.05); }
-.status-row:last-child{ border-bottom:none; }
-.status-dot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; margin-top:5px; background:var(--text-tertiary); }
-.status-dot.ok{ background:var(--accent-green); box-shadow:0 0 8px rgba(108,154,139,.6); }
-.status-dot.warn{ background:#FF8A3D; box-shadow:0 0 8px rgba(255,138,61,.45); }
-.status-dot.bad{ background:var(--accent-coral); box-shadow:0 0 8px rgba(217,108,91,.55); }
-.status-label{ font-size:.84rem; font-weight:600; color:var(--text-primary); }
-.status-detail{ font-size:.76rem; color:var(--text-secondary); line-height:1.5; margin-top:1px; }
 
-.cfg-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px 20px; }
-.cfg-row{ display:flex; flex-direction:column; gap:6px; }
-.cfg-row label{ margin-bottom:0 !important; }
-.cfg-row b{ color:#FF8A3D; font-weight:600; margin-left:6px; }
-.cfg-row select{
-  width:100%; padding:10px 12px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border);
-  border-radius:10px; color:var(--text-primary); font-size:.8rem;
+/* ===========================================================================
+   KNIGHT SEARCH BAR + AI MODE
+   The bar sits in the dashboard header. Saying "Hey Knight" adds
+   body.knight-ai-mode: the palette flips to black and orange and an uneven,
+   slowly shifting wash covers part of the screen.
+=========================================================================== */
+.knight-bar{
+  display:flex; align-items:center; gap:6px; flex:1 1 280px; max-width:460px; min-width:220px;
+  padding:4px 6px 4px 14px; border:1px solid var(--panel-border); border-radius:24px;
+  background:rgba(0,0,0,.3); transition:border-color .2s, box-shadow .2s;
 }
-.cfg-row input[type="range"]{ width:100%; accent-color:#FF8A3D; }
-.cfg-check{ display:flex; align-items:center; gap:9px; font-size:.82rem; color:var(--text-secondary); cursor:pointer; padding-top:4px; }
-.cfg-check input{ accent-color:#FF8A3D; }
+.knight-bar:focus-within{ border-color:var(--accent-gold); }
+.knight-bar .kb-icon{ flex:none; color:var(--text-tertiary); }
+.knight-bar input{
+  flex:1; min-width:0; background:transparent; border:0; outline:0;
+  color:var(--text-primary); font:inherit; font-size:.85rem; padding:8px 4px;
+}
+.knight-bar input::placeholder{ color:var(--text-tertiary); }
+.kb-btn{
+  flex:none; width:34px; height:34px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+  background:transparent; border:1px solid transparent; color:var(--text-secondary); cursor:pointer; transition:.2s; position:relative;
+}
+.kb-btn:hover{ background:var(--btn-hover); color:var(--text-primary); }
+.kb-btn:focus-visible, .kh-icon-btn:focus-visible, .kh-exit:focus-visible, .kh-send:focus-visible{ outline:2px solid #ff7a1a; outline-offset:2px; }
+.kb-btn.busy{ color:#ff7a1a; animation:kbPulse 1.1s infinite; }
+/* voice on, waiting for the wake word */
+.kb-btn.armed{ color:#ff7a1a; }
+.kb-btn.armed::after{ content:""; position:absolute; top:5px; right:5px; width:7px; height:7px; border-radius:50%; background:#ff7a1a; }
+/* AI mode is live */
+.kb-btn.listening{ color:#ff7a1a; border-color:#ff7a1a; background:rgba(255,122,26,.12); animation:kbPulse 1.4s infinite; }
+@keyframes kbPulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(255,122,26,.45); } 50%{ box-shadow:0 0 0 7px rgba(255,122,26,0); } }
+@media (max-width:768px){ .knight-bar{ order:3; flex-basis:100%; max-width:none; } }
+
+/* ---- the wash: two ragged shapes, one black, one orange ------------------ */
+#knightWash{ position:fixed; inset:0; z-index:90; pointer-events:none; opacity:0; transition:opacity .8s ease; }
+body.knight-ai-mode #knightWash{ opacity:1; }
+#knightWash::before, #knightWash::after{ content:""; position:absolute; inset:0; }
+#knightWash::before{
+  background:linear-gradient(135deg, rgba(0,0,0,.52), rgba(0,0,0,.30));
+  clip-path:polygon(0 0, 44% 0, 37% 13%, 50% 29%, 40% 50%, 54% 71%, 34% 100%, 0 100%);
+  animation:knightShapeA 13s ease-in-out infinite alternate;
+}
+#knightWash::after{
+  background:linear-gradient(200deg, rgba(255,150,40,.34), rgba(255,98,0,.20) 55%, rgba(255,98,0,.08));
+  clip-path:polygon(100% 0, 79% 0, 87% 21%, 69% 37%, 81% 60%, 63% 83%, 71% 100%, 100% 100%);
+  animation:knightShapeB 17s ease-in-out infinite alternate;
+}
+@keyframes knightShapeA{
+  to{ clip-path:polygon(0 0, 33% 0, 48% 17%, 35% 36%, 52% 56%, 38% 78%, 46% 100%, 0 100%); }
+}
+@keyframes knightShapeB{
+  to{ clip-path:polygon(100% 0, 71% 0, 80% 16%, 62% 41%, 76% 57%, 69% 79%, 57% 100%, 100% 100%); }
+}
+
+/* ---- palette swap while AI mode is on ------------------------------------ */
+body.knight-ai-mode{
+  --bg-base:#080808;
+  --glow-left:rgba(255,106,0,.30);
+  --glow-right:rgba(0,0,0,.70);
+  --accent-gold:#ff7a1a;
+  --accent-green:#ff8a2a;
+  --accent-blue:#e8650f;
+  --panel-border:rgba(255,122,26,.22);
+  --panel-border-hover:rgba(255,122,26,.55);
+}
+body.knight-ai-mode .studio-category-pill.active{ color:#080808; }
+
+/* ---- command panel -------------------------------------------------------- */
+#knightHud{
+  position:fixed; left:50%; bottom:18px; z-index:120; width:min(560px, calc(100vw - 24px));
+  transform:translate(-50%, 24px); opacity:0; pointer-events:none;
+  background:rgba(8,8,8,.94); border:1px solid rgba(255,122,26,.55); border-radius:18px;
+  box-shadow:0 18px 60px rgba(0,0,0,.65), 0 0 0 1px rgba(255,122,26,.08);
+  padding:12px 14px 14px; transition:opacity .35s ease, transform .35s ease;
+}
+body.knight-ai-mode #knightHud{ transform:translate(-50%, 0); opacity:1; pointer-events:auto; }
+.kh-head{ display:flex; align-items:center; gap:10px; font-size:.82rem; color:var(--text-primary); }
+.kh-dot{ width:9px; height:9px; border-radius:50%; background:#ff7a1a; animation:kbPulse 1.4s infinite; }
+.kh-state{ color:var(--text-secondary); font-size:.78rem; margin-right:auto; }
+.kh-icon-btn, .kh-exit, .kh-send{
+  background:transparent; border:1px solid rgba(255,122,26,.35); color:#ff9a45; border-radius:14px;
+  cursor:pointer; font:inherit; font-size:.76rem; transition:.2s;
+}
+.kh-icon-btn{ width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; padding:0; }
+.kh-exit, .kh-send{ padding:6px 14px; }
+.kh-icon-btn:hover, .kh-exit:hover, .kh-send:hover{ background:rgba(255,122,26,.16); color:#ffb070; }
+.kh-icon-btn[aria-pressed="true"]{ background:rgba(255,122,26,.16); text-decoration:line-through; }
+#khLog{ display:flex; flex-direction:column; gap:7px; max-height:30vh; overflow-y:auto; margin:10px 0; padding-right:4px; }
+#khLog:empty{ display:none; }
+#khLog div{ font-size:.86rem; line-height:1.45; }
+#khLog .kh-you{ color:var(--text-secondary); text-align:right; }
+#khLog .kh-ai{ color:#f4ede6; border-left:2px solid #ff7a1a; padding-left:10px; }
+#khLog .kh-err{ color:#ff9a8a; border-left:2px solid #d96c5b; padding-left:10px; }
+#khForm{ display:flex; gap:8px; margin-top:8px; }
+#khInput{
+  flex:1; min-width:0; background:rgba(255,255,255,.05); border:1px solid rgba(255,122,26,.28); border-radius:14px;
+  color:var(--text-primary); font:inherit; font-size:.85rem; padding:9px 12px; outline:0;
+}
+#khInput:focus{ border-color:#ff7a1a; }
+#khInput::placeholder{ color:var(--text-tertiary); }
+
+@media (prefers-reduced-motion:reduce){
+  #knightWash::before, #knightWash::after, .kb-btn.listening, .kb-btn.busy, .kh-dot{ animation:none; }
+  #knightWash, #knightHud{ transition:none; }
+}
+body.reduce-motion #knightWash::before, body.reduce-motion #knightWash::after,
+body.reduce-motion .kb-btn.listening, body.reduce-motion .kb-btn.busy, body.reduce-motion .kh-dot{ animation:none; }

@@ -14,3 +14,5 @@
   Cache-Control: no-cache
 /script.js
   Cache-Control: no-cache
+/puter-guard.js
+  Cache-Control: no-cache
