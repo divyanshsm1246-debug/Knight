@@ -29,7 +29,12 @@
     padding:10px 22px; border-radius:24px; font-size:.9rem; margin-top:6px;
   }
 </style>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23FFE27A'/%3E%3Cstop offset='1' stop-color='%23E08A1E'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='%2317161a'/%3E%3Cpath d='M32 7 54 19.5v25L32 57 10 44.5v-25Z' fill='url%28%23g%29'/%3E%3Cpath d='M25 20v24M25 32l14-12M29 30l11 14' stroke='%2317161a' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#100f11">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -71,6 +76,7 @@
       <circle cx="6" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
     </svg>
     Knight
+    <span class="knight-clock" aria-label="Current time"></span>
   </div>
 
   <div class="auth-container" style="position: relative; z-index: 10;">
@@ -163,6 +169,8 @@
       <circle cx="6" cy="27" r="2.2" fill="currentColor" stroke="none" opacity=".7"/>
     </svg>
       Workspace / Nexus
+      <span class="knight-clock" aria-label="Current time"></span>
+      <span class="live-pill" id="headerLivePill" title="Real-time multiplayer status">Offline</span>
       <span id="headerDeviceBadge" class="device-badge">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         <span id="headerDeviceName">Windows</span>
@@ -258,9 +266,9 @@
 
     <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('notesPage')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
-      <h3>Data-Base</h3>
+      <h3>Notes</h3>
       <p>Notes and code snippets, searchable and tagged — visible only to you.</p>
-      <div class="enter-btn">Open Data-Base <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+      <div class="enter-btn">Open Notes <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
     <div class="dash-card theme-neutral" tabindex="0" onclick="openKnightPage('settingsPage')">
@@ -573,7 +581,8 @@
     <span id="projectDetailRoleBadge" class="social-id-chip" style="margin-left:auto;">owner</span>
   </div>
   <p id="projectDetailDesc" style="color:var(--text-secondary); margin-bottom:6px;"></p>
-  <div id="projectDetailTags" style="margin-bottom:18px;"></div>
+  <div id="projectDetailTags" style="margin-bottom:14px;"></div>
+  <div id="repoBar"></div>
 
   <!-- GitHub-style component tabs — each part of the project lives on its own tab -->
   <div class="proj-tabs">
@@ -713,7 +722,7 @@
     <span class="server-pill" id="termServerPill" style="display:none;">connected</span>
   </div>
   <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:16px;">
-    Runs on the public Piston execution service (emkc.org) — real output, real errors, for eleven languages.
+    A compiler for 29 languages. JavaScript runs instantly in your browser; everything else compiles on a sandboxed server. Press Ctrl+Enter to run.
   </p>
 
   <div class="term-layout">
@@ -747,35 +756,28 @@
         <!-- Run & Console -->
         <div class="term-ws-panel" id="termWsPanel-run">
           <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; align-items:center;">
-            <select id="termLanguage" style="max-width:200px; padding:10px 14px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:10px; color:var(--text-primary);">
-              <option value="javascript">JavaScript (Node)</option>
-              <option value="python">Python</option>
-              <option value="c++">C++</option>
-              <option value="c">C</option>
-              <option value="java">Java</option>
-              <option value="typescript">TypeScript</option>
-              <option value="go">Go</option>
-              <option value="rust">Rust</option>
-              <option value="php">PHP</option>
-              <option value="ruby">Ruby</option>
-              <option value="bash">Bash</option>
-            </select>
+            <select id="termLanguage" style="max-width:200px; padding:10px 14px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:10px; color:var(--text-primary);"></select>
             <button class="nav-cta btn-golden" id="runCodeBtn" onclick="runCodeUI()">▶ Run</button>
+            <button class="nav-cta" id="termLintBtn" onclick="checkTermCodeUI()">Find errors<span id="termLintBadge" class="proj-tab-count"></span></button>
             <label style="font-size:.8rem; display:flex; align-items:center; gap:6px; color:var(--text-secondary);">
               <input type="checkbox" id="termAudioToggle" checked> Error sound
             </label>
           </div>
           <textarea id="termCodeInput" spellcheck="false" style="width:100%; min-height:220px; background:rgba(0,0,0,.35); border:1px solid var(--panel-border); border-radius:14px; padding:16px; color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:.85rem; resize:vertical;">console.log("Hello from Knight Terminal!");</textarea>
-          <div class="shortcut-category-label">Output</div>
+          <div id="termLintResult" class="lint-box"></div>
+          <div class="shortcut-category-label">Input (stdin, optional)</div>
+          <textarea id="termStdin" spellcheck="false" placeholder="Text your program reads, one line per input" style="width:100%; min-height:56px; background:rgba(0,0,0,.35); border:1px solid var(--panel-border); border-radius:12px; padding:10px 14px; color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:.82rem; resize:vertical;"></textarea>
+          <div class="shortcut-category-label" style="display:flex;justify-content:space-between;">Output <span id="termRunMeta" style="text-transform:none;letter-spacing:0;color:var(--text-tertiary);"></span></div>
           <pre id="termOutput" style="background:rgba(0,0,0,.4); border:1px solid var(--panel-border); border-radius:14px; padding:16px; font-family:'JetBrains Mono',monospace; font-size:.85rem; min-height:120px; white-space:pre-wrap; color:var(--text-secondary);">Ready.</pre>
+          <div id="termJump" style="margin-top:8px;"></div>
           <div class="shortcut-category-label" style="margin-top:18px;">Console — Run History</div>
           <div id="termConsoleHistory" class="term-console-history"></div>
         </div>
 
         <!-- Debug -->
         <div class="term-ws-panel" id="termWsPanel-debug">
-          <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:12px;">Static checks run against every file currently in this project — syntax errors and unbalanced HTML tags. Not a full runtime debugger by itself.</p>
-          <button class="nav-cta" style="margin-bottom:12px;" onclick="runTermDebugScan()">🐞 Scan Current Files</button>
+          <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:12px;">Checks every file in this project for syntax errors, unclosed brackets and tags, and bad JSON, and shows the exact line. Click a result to open it at that line.</p>
+          <button class="nav-cta" style="margin-bottom:12px;" onclick="runTermDebugScan()">Find errors in all files</button>
           <div id="termDebugResult"></div>
 
           <div class="shortcut-category-label" style="margin-top:20px;">Live Runtime Console</div>
@@ -917,103 +919,18 @@
 <div class="knight-page" id="notesPage">
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('notesPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Data-Base — Notes &amp; Codes</div>
+    <div class="page-title">Notes</div>
   </div>
-
-  <div class="db-columns">
-    <!-- ===================== LEFT: Notes ===================== -->
-    <div class="db-col">
-      <h2 class="db-col-title">Notes</h2>
-      <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">Notes, code, mind maps, and learnings — private to you, stored only on this device.</p>
-
-      <div class="db-toolbar">
-        <button class="nav-cta btn-golden" onclick="createNoteUI('note')">+ Note</button>
-        <button class="nav-cta" onclick="createNoteUI('code')">+ Code</button>
-        <button class="nav-cta" onclick="createMindMapUI()">+ Mind Map</button>
-        <button class="nav-cta" onclick="createNoteUI('learning')">+ Learning</button>
-      </div>
-      <div class="db-toolbar">
-        <input type="text" id="notesSearchInput" placeholder="Search notes &amp; snippets…" oninput="renderNotes()">
-        <select id="notesSortSelect" onchange="renderNotes()">
-          <option value="recent">Sort: Recent</option>
-          <option value="pinned">Sort: Pinned first</option>
-          <option value="az">Sort: A–Z</option>
-        </select>
-      </div>
-      <div id="notesTagPills" class="db-tag-pills"></div>
-      <p id="notesCount" class="db-count"></p>
-      <div id="notesGrid" class="db-grid quest-grid"></div>
-    </div>
-
-    <!-- ===================== RIGHT: Database ===================== -->
-    <div class="db-col">
-      <h2 class="db-col-title">Database</h2>
-      <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">Real numbers from this deployment — accounts, who's active, and activity over time.</p>
-
-      <div id="dbAnalyticsNote" class="cloud-note"></div>
-
-      <div class="proj-stats-row" id="dbStatsRow"></div>
-
-      <div class="db-chart-card">
-        <div class="db-chart-head"><span>Signups — last 14 days</span><span id="dbSignupTotal" class="db-chart-total"></span></div>
-        <div id="dbSignupChart" class="db-chart-svg-wrap"></div>
-      </div>
-
-      <div class="db-chart-card">
-        <div class="db-chart-head"><span>Activity — last 7 days</span><span id="dbActivityTotal" class="db-chart-total"></span></div>
-        <div id="dbActivityChart" class="db-chart-svg-wrap"></div>
-      </div>
-
-      <div class="shortcut-category-label" style="margin-top:8px;">Recent Activity</div>
-      <div id="dbActivityFeed" style="display:flex; flex-direction:column; gap:8px;"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Mind map editor -->
-<div class="modal-overlay" id="mindMapModal">
-  <div class="modal-content" style="max-width:720px;">
-    <svg class="close-modal" onclick="closeMindMapUI()" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-    <h2 id="mindMapTitle" contenteditable="true" style="margin-bottom:10px; outline:none;">Mind Map</h2>
-    <div class="mindmap-toolbar">
-      <button class="nav-cta" onclick="addMindMapNode()">+ Add Node</button>
-      <button class="nav-cta" onclick="connectMindMapSelected()">Connect / Disconnect Selected</button>
-      <button class="nav-cta" style="color:var(--accent-coral);" onclick="deleteMindMapSelected()">Delete Selected</button>
-      <span style="font-size:.72rem; color:var(--text-tertiary); margin-left:auto;">Click a node to select · drag to move · click two to connect</span>
-    </div>
-    <svg id="mindMapCanvas" class="mindmap-canvas" viewBox="0 0 680 380"></svg>
-    <button class="submit-btn" style="width:100%; margin-top:14px;" onclick="saveMindMapUI()">Save</button>
-  </div>
-</div>
-
-<!-- Note editor with mic dictation (used for note/code/learning types) -->
-<div class="modal-overlay" id="noteEditorModal">
-  <div class="modal-content" style="max-width:560px;">
-    <svg class="close-modal" onclick="closeModal('noteEditorModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-    <input type="text" id="noteEditorTitle" class="note-editor-title" placeholder="Title">
-    <select id="noteEditorLangSelect" style="display:none; margin-bottom:10px; padding:8px 12px; background:rgba(243,198,35,.1); border:1px solid rgba(243,198,35,.3); border-radius:8px; color:var(--accent-gold); font-family:'JetBrains Mono',monospace; font-size:.78rem;"></select>
-    <div id="noteEditorLearningFields" style="display:none; margin-bottom:10px;">
-      <input type="text" id="noteEditorSource" placeholder="Source (book, course, link…)" style="width:100%; margin-bottom:8px; padding:9px 12px; background:rgba(0,0,0,.3); border:1px solid var(--panel-border); border-radius:8px; color:var(--text-primary); font-size:.82rem;">
-    </div>
-    <div style="position:relative;">
-      <textarea id="noteEditorBody" class="db-note-area" style="min-height:200px;" placeholder="Write, or use the mic…"></textarea>
-      <button class="mic-btn" id="noteEditorMicBtn" title="Dictate" onclick="toggleNoteDictation()">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-      </button>
-    </div>
-    <button class="submit-btn" style="width:100%; margin-top:14px;" onclick="saveNoteEditorUI()">Save</button>
-  </div>
+  <iframe class="embed-frame" id="notesFrame" data-src="notes.html" title="Notes" allow="microphone; geolocation; clipboard-write; gamepad; autoplay" allowfullscreen></iframe>
 </div>
 
 <!-- ================= Arcade — real playable game ================= -->
 <div class="knight-page" id="arcadePage">
   <div class="page-topbar">
     <div class="page-back" onclick="closeKnightPage('arcadePage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Arcade — Memory Match</div>
+    <div class="page-title">Arcade</div>
   </div>
-  <p style="font-size:.85rem; color:var(--text-secondary); margin-bottom:16px;">Moves: <span id="memoryMoves">0</span> · Matches: <span id="memoryMatches">0</span>/8</p>
-  <button class="nav-cta" onclick="startMemoryGame()" style="margin-bottom:16px;">Restart</button>
-  <div id="memoryBoard" style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; max-width:480px;"></div>
+  <iframe class="embed-frame" id="arcadeFrame" data-src="arcade.html" title="Arcade" allow="microphone; geolocation; clipboard-write; gamepad; autoplay" allowfullscreen></iframe>
 </div>
 
 <!-- ================= Guide ================= -->
@@ -1155,7 +1072,7 @@
     <option value="studioPage">Studio</option>
     <option value="commPage">Communication</option>
     <option value="socialPage">Social &amp; Friends</option>
-    <option value="notesPage">Data-Base (Notes &amp; Codes)</option>
+    <option value="notesPage">Notes</option>
     <option value="arcadePage">Arcade</option>
     <option value="gameBoosterPage">Game Booster</option>
     <option value="linkDeployerPage">Link Deployer</option>
@@ -1259,7 +1176,7 @@
     <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Projects</h3>Create a project, add files (or drag in a whole folder, GitHub-style), and invite people by Social ID as Viewer, Contributor, or Editor. Contributor edits land as Change Requests you approve or reject — nothing touches the real file until then.</div>
     <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Studio</h3>Browse every public project on Knight — Categories, Trending, Yours, Socials, or Near You — with search, voice search, and star ratings.</div>
     <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Communication</h3>Pick a friend and chat in real time over Knight's own WebSocket server — messages arrive instantly for anyone online, not on a delay.</div>
-    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Data-Base (Notes &amp; Codes)</h3>Private notes and code snippets only you can see — searchable, taggable, pinnable.</div>
+    <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Notes</h3>Private notes and code snippets only you can see — searchable, taggable, pinnable.</div>
     <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Social &amp; Nearby Knights</h3>Your Profile card shows your Social ID — share it for friend requests. "Go Live" on the Social page finds other Knights physically near you in real time.</div>
     <div><h3 style="color:var(--text-primary); font-size:.95rem; margin-bottom:5px;">Deploy</h3>Deploy a project straight to a real link once Knight Cloud (the Java backend) is connected, or build a portable .html and host it yourself anywhere.</div>
   </div>
@@ -1364,7 +1281,7 @@
       <a onclick="openKnightPage('studioPage')">Studio</a>
       <a onclick="openKnightPage('terminalPage')">Terminal</a>
       <a onclick="openKnightPage('socialPage')">Social</a>
-      <a onclick="openKnightPage('notesPage')">Data-Base</a>
+      <a onclick="openKnightPage('notesPage')">Notes</a>
       <a onclick="openKnightPage('settingsPage')">Settings &amp; Guides</a>
     </div>
   </div>
@@ -1402,6 +1319,7 @@
   <div class="info-wrap">
     <h1 class="info-h1">About Knight</h1>
     <p class="info-lead">Knight is a home for building and shipping projects with other people: repos, a studio, a terminal, live chat and an AI partner in one place.</p>
+    <p class="info-lead" style="margin-top:-12px;">Created by <b style="color:var(--accent-gold);">Divyansh Gupta</b>.</p>
     <div class="info-grid">
       <div class="info-card"><h3>Build together</h3><p>Invite owners, editors and contributors, review changes and keep every version.</p></div>
       <div class="info-card"><h3>Always live</h3><p>Chat, presence and live edits work in real time with no setup.</p></div>
@@ -1418,7 +1336,7 @@
   </div>
   <div class="info-wrap">
     <h1 class="info-h1">Knight AI</h1>
-    <p class="info-lead">Your coding partner inside Knight. It writes files, fixes bugs and explains code, and nothing enters your repo until you click Allow.</p>
+    <p class="info-lead">Made by Divyansh Gupta. Your coding partner inside Knight. It writes files, fixes bugs and explains code, and nothing enters your repo until you click Allow.</p>
     <div class="info-grid">
       <div class="info-card"><h3>Runs through Puter</h3><p>Knight AI uses Puter's free AI. You sign in once with a free Puter account. No API key, no billing.</p></div>
       <div class="info-card"><h3>Secrets stay out</h3><p>Before a prompt leaves your browser, Knight removes anything shaped like a key, token, password or connection string.</p></div>
@@ -1443,7 +1361,7 @@
       <a href="#" onclick="openInfoPage('aboutPage');return false;">About Us</a>
       <a href="#" onclick="openInfoPage('aboutAiPage');return false;">Knight AI</a>
     </nav>
-    <div class="kf-copy">Knights. All rights reserved.</div>
+    <div class="kf-copy">Made by <b>Divyansh Gupta</b> &nbsp;·&nbsp; Knights. All rights reserved.</div>
   </div>
 </footer>
 

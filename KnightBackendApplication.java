@@ -1641,9 +1641,9 @@ class AiController {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("model", model);
             body.put("messages", req.messages);
-            body.put("max_tokens", 8000);
+            body.put("max_tokens", 16000);
             HttpRequest request = HttpRequest.newBuilder(URI.create("https://openrouter.ai/api/v1/chat/completions"))
-                    .timeout(Duration.ofSeconds(120))
+                    .timeout(Duration.ofSeconds(600))
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .header("X-Title", "Knight")

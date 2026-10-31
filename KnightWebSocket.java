@@ -20,7 +20,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
    Endpoint: /ws/knight?userId=...&username=...
    Same protocol the frontend already speaks:
-     client -> { type:"join", room }       join one room (a DM thread or "project:<id>")
+     client -> { type:"join", room }       join a room (DM thread, "user:<socialId>" inbox, "project:<id>"); many allowed
+     client -> { type:"signal", room, kind, data } one-off message to a room (friend requests)
      client -> { type:"chat", room, text } broadcast a chat message + keep recent history
      client -> { type:"typing", room }     "is typing…" signal
      client -> { type:"file-update", room, filename }
@@ -59,7 +60,7 @@ class KnightWebSocketHandler extends TextWebSocketHandler {
 
     private final ObjectMapper json = new ObjectMapper();
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
-    private final Map<String, String> roomOf = new ConcurrentHashMap<>();      // sessionId -> room
+    private final Map<String, Set<String>> roomOf = new ConcurrentHashMap<>();  // sessionId -> rooms joined
     private final Map<String, Long> lastMsg = new ConcurrentHashMap<>();
     private final Map<String, List<Map<String, Object>>> history = new ConcurrentHashMap<>();
 
@@ -88,9 +89,19 @@ class KnightWebSocketHandler extends TextWebSocketHandler {
         switch (type) {
             case "join" -> {
                 if (room.isBlank()) return;
-                roomOf.put(s.getId(), room);
+                roomOf.computeIfAbsent(s.getId(), k -> ConcurrentHashMap.newKeySet()).add(room);
+                if (roomOf.get(s.getId()).size() > 40) return;
                 send(s, Map.of("type", "history", "room", room,
                         "messages", history.getOrDefault(room, List.of())));
+            }
+            case "leave" -> { Set<String> r = roomOf.get(s.getId()); if (r != null) r.remove(room); }
+            case "signal" -> {   // small one-off message to a room (friend requests etc.), never stored
+                if (room.isBlank()) return;
+                Map<String, Object> msg = new LinkedHashMap<>();
+                msg.put("type", "signal"); msg.put("room", room); msg.put("from", uid); msg.put("username", name);
+                msg.put("kind", clip(n.path("kind").asText(""), 40));
+                msg.put("data", json.convertValue(n.path("data"), Object.class));
+                toRoomExcept(room, msg, s.getId());
             }
             case "ping" -> send(s, Map.of("type", "pong"));
             case "chat" -> {
@@ -131,11 +142,15 @@ class KnightWebSocketHandler extends TextWebSocketHandler {
         for (WebSocketSession s : sessions.values()) send(s, msg);
     }
     private void toRoom(String room, Object msg) {
-        for (WebSocketSession s : sessions.values()) if (room.equals(roomOf.get(s.getId()))) send(s, msg);
+        for (WebSocketSession s : sessions.values()) if (inRoom(s, room)) send(s, msg);
     }
     private void toRoomExcept(String room, Object msg, String exceptId) {
         for (WebSocketSession s : sessions.values())
-            if (!s.getId().equals(exceptId) && room.equals(roomOf.get(s.getId()))) send(s, msg);
+            if (!s.getId().equals(exceptId) && inRoom(s, room)) send(s, msg);
+    }
+    private boolean inRoom(WebSocketSession s, String room) {
+        Set<String> r = roomOf.get(s.getId());
+        return r != null && r.contains(room);
     }
     private void send(WebSocketSession s, Object msg) {
         try {

@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        appBg: '#0f0f0f',
+                        appCard: '#1a1a1a',
+                        appBorder: '#27272a',
+                        appYellow: '#eab308',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', "Liberation Mono", "Courier New", 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f0f0f;
+            color: #f4f4f5;
+        }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 { color: #f4f4f5; font-weight: 600; margin-top: 1.5em; margin-bottom: 0.5em; }
+        .prose h1 { font-size: 2em; }
+        .prose h2 { font-size: 1.5em; border-bottom: 1px solid #27272a; padding-bottom: 0.3em; }
+        .prose p { margin-top: 0; margin-bottom: 1em; line-height: 1.6; }
+        .prose a { color: #60a5fa; text-decoration: underline; }
+        .prose ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
+        .prose ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 1em; }
+        .prose code { background: #27272a; padding: 0.2em 0.4em; border-radius: 0.25rem; font-family: monospace; font-size: 0.9em; }
+        .prose pre { background: #18181b; padding: 1em; border-radius: 0.5rem; overflow-x: auto; border: 1px solid #27272a; margin-bottom: 1em;}
+        .prose pre code { background: transparent; padding: 0; font-size: 0.9em; }
+        .prose blockquote { border-left: 4px solid #3f3f46; padding-left: 1em; color: #a1a1aa; font-style: italic; }
+
+        .mindmap-bg { background-color: #000000 !important; }
+
+        .mindmap-node rect, .mindmap-node circle, .mindmap-node polygon, .mindmap-node path,
+        .node rect, .node circle, .node polygon, .node path {
+            fill: #000000 !important;
+            stroke: #00ffff !important;
+            stroke-width: 2px !important;
+            filter: drop-shadow(0 0 8px rgba(0, 255, 255, 0.6));
+        }
+
+        .mindmap-node.section-root rect, .mindmap-node.section-root circle, .mindmap-node.section-root polygon, .mindmap-node.section-root path,
+        .mindmap-node.section-0 rect, .mindmap-node.section-0 circle, .mindmap-node.section-0 polygon, .mindmap-node.section-0 path,
+        .mindmap-node:nth-child(even) rect {
+            stroke: #ff9900 !important;
+            filter: drop-shadow(0 0 10px rgba(255, 153, 0, 0.7));
+        }
+
+        .mindmap-node text, .node text {
+            fill: #ffffff !important;
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 500;
+        }
+
+        .mindmap-edge, .edgePath .path, .link {
+            stroke: #00ffff !important;
+            stroke-width: 1.5px !important;
+            filter: drop-shadow(0 0 5px rgba(0, 255, 255, 0.5));
+            fill: none !important;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col antialiased">
+
+    <!-- HOME VIEW -->
+    <div id="homeView" class="flex-1 flex flex-col h-full w-full max-w-6xl mx-auto px-6 py-10 md:py-14 overflow-y-auto">
+
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-white mb-2">Notes</h1>
+            <p class="text-zinc-400 text-sm md:text-base">Notes, code, mind maps, and learnings — private to you, stored only on this device.</p>
+        </header>
+
+        <div class="flex flex-wrap gap-3 mb-8">
+            <button onclick="openEditor('note')" class="bg-appYellow hover:bg-yellow-400 text-black font-semibold py-2 px-6 rounded-full flex items-center gap-2 shadow-[0_0_20px_rgba(234,179,8,0.15)] transition-all transform active:scale-95">
+                <i data-lucide="plus" class="w-4 h-4"></i>
+                Note
+            </button>
+            <button onclick="openEditor('code')" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-medium py-2 px-6 rounded-full border border-zinc-700 flex items-center gap-2 transition-all transform active:scale-95">
+                <i data-lucide="plus" class="w-4 h-4 text-zinc-400"></i>
+                Code
+            </button>
+            <button onclick="openEditor('mindmap')" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-medium py-2 px-6 rounded-full border border-zinc-700 flex items-center gap-2 transition-all transform active:scale-95">
+                <i data-lucide="plus" class="w-4 h-4 text-zinc-400"></i>
+                Mind Map
+            </button>
+            <button onclick="openEditor('learning')" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-medium py-2 px-6 rounded-full border border-zinc-700 flex items-center gap-2 transition-all transform active:scale-95">
+                <i data-lucide="plus" class="w-4 h-4 text-zinc-400"></i>
+                Learning
+            </button>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3 mb-6">
+            <div class="relative flex-1">
+                <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-3 text-zinc-500"></i>
+                <input type="text" id="searchInput" placeholder="Search notes, tags, snippets, locations..." class="w-full bg-[#141414] border border-appBorder rounded-lg py-2 pl-10 pr-4 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-500 transition-colors text-sm">
+            </div>
+            <select id="sortSelect" class="bg-[#141414] border border-appBorder rounded-lg py-2 px-4 text-zinc-200 text-sm focus:outline-none focus:border-zinc-500 cursor-pointer appearance-none min-w-[140px]">
+                <option value="recent">Sort: Recent</option>
+                <option value="oldest">Sort: Oldest</option>
+                <option value="az">Sort: A-Z</option>
+            </select>
+        </div>
+
+        <div id="itemCount" class="text-zinc-500 text-xs mb-4">0 of 0 items</div>
+
+        <div id="itemsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-12"></div>
+
+        <div id="emptyState" class="hidden text-zinc-500 text-base py-4">
+            Nothing here yet — add a note, snippet, mind map, or learning.
+        </div>
+    </div>
+
+    <!-- EDITOR VIEW (Full Screen) -->
+    <div id="editorView" class="fixed inset-0 bg-appBg z-40 hidden flex-col w-full h-full transform translate-x-full transition-transform duration-300 ease-in-out">
+
+        <div class="h-16 border-b border-appBorder flex items-center justify-between px-4 sm:px-6 bg-[#141414] shrink-0">
+            <div class="flex items-center gap-3 flex-1">
+                <button onclick="closeEditor()" class="text-zinc-400 hover:text-white flex items-center gap-1 transition-colors px-2 py-1 -ml-2 rounded hover:bg-zinc-800 text-sm font-medium">
+                    <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                    <span class="hidden sm:inline">Back</span>
+                </button>
+                <div class="h-6 w-px bg-zinc-700 hidden sm:block"></div>
+
+                <div class="flex items-center gap-2 flex-1 max-w-xl">
+                    <input type="text" id="editorTitle" placeholder="Untitled..." class="bg-transparent border-none outline-none text-white text-lg font-semibold w-full placeholder-zinc-600 focus:ring-0">
+                    <button id="titleMicBtn" onclick="toggleVoiceDictation('editorTitle', 'titleMicBtn')" class="p-1.5 text-zinc-400 hover:text-appYellow rounded-md hover:bg-zinc-800 transition-colors shrink-0" title="Voice Title Input">
+                        <i data-lucide="mic" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <span id="editorTypeBadge" class="hidden sm:inline-flex px-2.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">Type</span>
+
+                <div id="saveStatusIndicator" class="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-1 rounded-full shrink-0">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="saveStatusText">Saved</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button id="runCodeBtn" onclick="executeCodePreview()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">
+                    <i data-lucide="play" class="w-3.5 h-3.5"></i>
+                    Run Code
+                </button>
+                <button id="toggleLayoutBtn" class="p-2 text-zinc-400 hover:text-white rounded hover:bg-zinc-800 transition-colors" title="Toggle Split Preview Pane">
+                    <i data-lucide="layout-template" class="w-5 h-5"></i>
+                </button>
+                <button onclick="confirmDelete()" class="p-2 text-zinc-400 hover:text-red-400 rounded hover:bg-zinc-800 transition-colors" title="Delete">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-[#111111] border-b border-appBorder px-6 py-2 flex flex-wrap items-center gap-4 text-xs shrink-0">
+            <div class="flex items-center gap-2 flex-1 min-w-[200px]">
+                <i data-lucide="tag" class="w-3.5 h-3.5 text-zinc-500"></i>
+                <input type="text" id="editorTags" placeholder="Add tags (comma separated, e.g. project, ideas)..." class="bg-transparent text-zinc-300 placeholder-zinc-600 outline-none w-full focus:text-white">
+            </div>
+            <div class="flex items-center gap-2 min-w-[180px]">
+                <i data-lucide="map-pin" class="w-3.5 h-3.5 text-zinc-500"></i>
+                <input type="text" id="editorLocation" placeholder="Location (e.g. Office, Home)..." class="bg-transparent text-zinc-300 placeholder-zinc-600 outline-none w-full focus:text-white">
+                <button onclick="getCurrentLocation()" class="text-zinc-500 hover:text-appYellow transition-colors" title="Detect Current Location">
+                    <i data-lucide="crosshair" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 flex flex-col md:flex-row w-full overflow-hidden relative">
+
+            <div id="editorInputPane" class="flex-1 flex flex-col h-full border-r border-appBorder relative">
+                <div class="p-2 border-b border-appBorder bg-appBg/50 flex items-center justify-between">
+                    <span class="text-xs text-zinc-500 font-mono px-2">Editor Mode</span>
+                    <button id="bodyMicBtn" onclick="toggleVoiceDictation('editorTextarea', 'bodyMicBtn')" class="px-2 py-1 text-xs text-zinc-400 hover:text-appYellow bg-zinc-800 hover:bg-zinc-700 rounded flex items-center gap-1.5 transition-colors" title="Voice Input Body Text">
+                        <i data-lucide="mic" class="w-3.5 h-3.5"></i>
+                        <span>Dictate</span>
+                    </button>
+                </div>
+                <div class="flex-1 relative">
+                    <textarea id="editorTextarea" class="absolute inset-0 w-full h-full bg-appBg text-zinc-200 p-6 resize-none outline-none border-none leading-relaxed focus:ring-0" spellcheck="false" placeholder="Start typing..."></textarea>
+                </div>
+            </div>
+
+            <div id="editorPreviewPane" class="flex-1 flex flex-col h-full bg-[#111111] overflow-hidden hidden md:flex">
+
+                <div id="codeRunnerContainer" class="hidden flex-col h-full w-full">
+                    <div class="flex-1 bg-white relative flex flex-col">
+                        <div class="bg-zinc-800 px-3 py-1.5 text-zinc-400 text-xs font-mono border-b border-zinc-700 flex justify-between items-center">
+                            <span>HTML / Live Preview Frame</span>
+                            <span class="text-[10px] bg-emerald-950 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-800">Rendered Live</span>
+                        </div>
+                        <iframe id="codePreviewFrame" class="w-full flex-1 border-none bg-white"></iframe>
+                    </div>
+                    <div class="h-44 bg-[#0d0d0d] border-t border-appBorder flex flex-col font-mono text-xs">
+                        <div class="bg-zinc-900 px-3 py-1 text-zinc-400 border-b border-zinc-800 flex justify-between items-center">
+                            <span class="flex items-center gap-1.5">
+                                <i data-lucide="terminal" class="w-3.5 h-3.5 text-zinc-500"></i>
+                                Console Terminal
+                            </span>
+                            <button onclick="clearConsoleTerminal()" class="text-zinc-500 hover:text-zinc-300">Clear</button>
+                        </div>
+                        <div id="consoleTerminalLog" class="flex-1 p-3 overflow-y-auto space-y-1 text-zinc-300">
+                            <div class="text-zinc-600">[Terminal Ready. Console log outputs will render here...]</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="previewContainer" class="p-6 w-full h-full overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modal for Deletion -->
+    <div id="confirmModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+        <div id="confirmBox" class="bg-[#18181b] border border-appBorder rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-200">
+            <h3 class="text-lg font-bold text-white mb-2">Delete Item</h3>
+            <p class="text-zinc-400 text-sm mb-6">Are you sure you want to delete this? This action cannot be undone.</p>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeModal()" class="px-4 py-2 text-sm rounded-lg border border-zinc-700 hover:bg-zinc-800 text-zinc-300 font-medium transition-colors">Cancel</button>
+                <button onclick="executeDelete()" class="px-4 py-2 text-sm rounded-lg bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white border border-red-900 font-medium transition-colors">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- State Management ---
+        let items = [];
+        let currentEditingId = null;
+        let currentEditingType = null;
+
+        let searchQuery = '';
+        let sortMode = 'recent';
+        let isSplitView = true;
+        let activeRecognition = null;
+
+        // Elements
+        const homeView = document.getElementById('homeView');
+        const editorView = document.getElementById('editorView');
+        const itemsGrid = document.getElementById('itemsGrid');
+        const emptyState = document.getElementById('emptyState');
+        const itemCount = document.getElementById('itemCount');
+
+        const editorTitle = document.getElementById('editorTitle');
+        const editorTags = document.getElementById('editorTags');
+        const editorLocation = document.getElementById('editorLocation');
+        const editorTextarea = document.getElementById('editorTextarea');
+        const editorTypeBadge = document.getElementById('editorTypeBadge');
+        const editorInputPane = document.getElementById('editorInputPane');
+        const editorPreviewPane = document.getElementById('editorPreviewPane');
+        const previewContainer = document.getElementById('previewContainer');
+        const codeRunnerContainer = document.getElementById('codeRunnerContainer');
+        const codePreviewFrame = document.getElementById('codePreviewFrame');
+        const consoleTerminalLog = document.getElementById('consoleTerminalLog');
+        const runCodeBtn = document.getElementById('runCodeBtn');
+        const toggleLayoutBtn = document.getElementById('toggleLayoutBtn');
+
+        const saveStatusIndicator = document.getElementById('saveStatusIndicator');
+        const saveStatusText = document.getElementById('saveStatusText');
+
+        const confirmModal = document.getElementById('confirmModal');
+        const confirmBox = document.getElementById('confirmBox');
+
+        const searchInput = document.getElementById('searchInput');
+        const sortSelect = document.getElementById('sortSelect');
+
+        // Initial Templates
+        const templates = {
+            note: "# New Note\n\nStart writing your thoughts here...",
+            code: "<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { background: #0f172a; color: #38bdf8; font-family: sans-serif; text-align: center; padding-top: 40px; }\n  </style>\n</head>\n<body>\n  <h1>Hello World Code Preview</h1>\n  <p>Modify this HTML & run it!</p>\n  <script>\n    console.log('App Loaded Successfully!');\n  <\/script>\n</body>\n</html>",
+            mindmap: "mindmap\n  root((Project Ideas))\n    Frontend\n      React\n      Tailwind\n    Backend\n      Node.js\n      Database\n    Deployment\n      Vercel",
+            learning: "# Learning Objective\n\n- Key Concepts:\n- Implementation Notes:\n\n**Takeaways:**"
+        };
+
+        const typeIcons = { note: 'file-text', code: 'code', mindmap: 'network', learning: 'brain-circuit' };
+        const typeColors = { note: 'text-yellow-500', code: 'text-blue-400', mindmap: 'text-purple-400', learning: 'text-green-400' };
+
+        // --- Initialization ---
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'base',
+                themeVariables: { darkMode: true, background: '#000000', fontFamily: 'Inter' },
+                mindmap: { padding: 30 }
+            });
+
+            loadData();
+            setupEventListeners();
+            renderList();
+        });
+
+        function loadData() {
+            let saved = null;
+            try { saved = localStorage.getItem('notes_db_v2'); } catch (e) {}
+            if (saved) {
+                try { items = JSON.parse(saved); } catch (e) { items = []; }
+            } else { items = []; }
+        }
+
+        function saveData() {
+            try { localStorage.setItem('notes_db_v2', JSON.stringify(items)); } catch (e) {}
+            triggerSaveAnimation();
+        }
+
+        function triggerSaveAnimation() {
+            saveStatusText.textContent = "Saving...";
+            saveStatusIndicator.className = "flex items-center gap-1.5 text-xs text-amber-400 bg-amber-950/40 border border-amber-800/50 px-2.5 py-1 rounded-full shrink-0";
+
+            setTimeout(() => {
+                saveStatusText.textContent = "Auto-Saved";
+                saveStatusIndicator.className = "flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-1 rounded-full shrink-0";
+            }, 400);
+        }
+
+        // --- Home View Rendering ---
+        function renderList() {
+            itemsGrid.innerHTML = '';
+
+            let filtered = items.filter(item => {
+                const term = searchQuery.toLowerCase();
+                const tagsStr = (item.tags || []).join(' ').toLowerCase();
+                const locStr = (item.location || '').toLowerCase();
+                return item.title.toLowerCase().includes(term) ||
+                       item.content.toLowerCase().includes(term) ||
+                       tagsStr.includes(term) ||
+                       locStr.includes(term);
+            });
+
+            filtered.sort((a, b) => {
+                if (sortMode === 'recent') return b.updatedAt - a.updatedAt;
+                if (sortMode === 'oldest') return a.updatedAt - b.updatedAt;
+                if (sortMode === 'az') return a.title.localeCompare(b.title);
+                return 0;
+            });
+
+            itemCount.textContent = `${filtered.length} of ${items.length} items`;
+
+            if (filtered.length === 0) {
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+
+                filtered.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = "bg-appCard border border-appBorder rounded-xl p-5 hover:border-zinc-600 transition-colors cursor-pointer group flex flex-col justify-between h-48";
+                    card.onclick = () => openEditor(item.type, item.id);
+
+                    const dateStr = new Date(item.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                    const snippet = item.type === 'mindmap'
+                        ? '[Mind Map Layout]'
+                        : item.content.replace(/#|`|\*/g, '').substring(0, 75) + '...';
+
+                    const tagsHtml = (item.tags || []).slice(0, 2).map(t => `<span class="bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded text-[10px] border border-zinc-700">#${escapeHtml(t.trim())}</span>`).join(' ');
+
+                    card.innerHTML = `
+                        <div>
+                            <div class="flex items-start justify-between mb-1.5">
+                                <h3 class="text-zinc-100 font-semibold truncate pr-2">${escapeHtml(item.title) || 'Untitled'}</h3>
+                                <i data-lucide="${typeIcons[item.type] || 'file'}" class="w-4 h-4 ${typeColors[item.type]} opacity-80 shrink-0"></i>
+                            </div>
+                            <p class="text-zinc-400 text-xs line-clamp-3 leading-relaxed mb-2">${escapeHtml(snippet)}</p>
+                        </div>
+                        <div>
+                            ${tagsHtml ? `<div class="flex gap-1 mb-2">${tagsHtml}</div>` : ''}
+                            <div class="text-zinc-600 text-[11px] flex items-center justify-between border-t border-zinc-800 pt-2">
+                                <span class="flex items-center gap-1">
+                                    ${item.location ? `<i data-lucide="map-pin" class="w-3 h-3"></i> ${escapeHtml(item.location)}` : dateStr}
+                                </span>
+                                <span class="uppercase tracking-wider text-[9px] font-bold text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity">Edit</span>
+                            </div>
+                        </div>
+                    `;
+                    itemsGrid.appendChild(card);
+                });
+                lucide.createIcons();
+            }
+        }
+
+        // --- Editor Open/Close ---
+        function openEditor(type, id = null) {
+            let item;
+            if (id) {
+                item = items.find(i => i.id === id);
+                if (!item) return;
+                currentEditingId = id;
+                currentEditingType = item.type;
+                editorTitle.value = item.title || '';
+                editorTags.value = (item.tags || []).join(', ');
+                editorLocation.value = item.location || '';
+                editorTextarea.value = item.content || '';
+            } else {
+                currentEditingId = Date.now().toString();
+                currentEditingType = type;
+                editorTitle.value = '';
+                editorTags.value = '';
+                editorLocation.value = '';
+                editorTextarea.value = templates[type] || '';
+
+                item = {
+                    id: currentEditingId,
+                    type: currentEditingType,
+                    title: '',
+                    tags: [],
+                    location: '',
+                    content: editorTextarea.value,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now()
+                };
+                items.unshift(item);
+            }
+
+            editorTypeBadge.textContent = currentEditingType;
+
+            if (currentEditingType === 'code') {
+                runCodeBtn.classList.remove('hidden');
+                codeRunnerContainer.classList.remove('hidden');
+                codeRunnerContainer.classList.add('flex');
+                previewContainer.classList.add('hidden');
+                editorTextarea.classList.add('font-mono', 'text-sm');
+            } else {
+                runCodeBtn.classList.add('hidden');
+                codeRunnerContainer.classList.add('hidden');
+                codeRunnerContainer.classList.remove('flex');
+                previewContainer.classList.remove('hidden');
+                editorTextarea.classList.remove('font-mono');
+            }
+
+            editorView.classList.remove('hidden');
+            editorView.classList.add('flex');
+            setTimeout(() => { editorView.classList.remove('translate-x-full'); }, 10);
+
+            updatePreview();
+            if (!id) editorTitle.focus();
+        }
+
+        function closeEditor() {
+            saveCurrentEditorState();
+
+            const item = items.find(i => i.id === currentEditingId);
+            if (item && item.title.trim() === '' && item.content.trim() === (templates[item.type] || '')) {
+                items = items.filter(i => i.id !== currentEditingId);
+                saveData();
+            }
+
+            editorView.classList.add('translate-x-full');
+            setTimeout(() => {
+                editorView.classList.add('hidden');
+                editorView.classList.remove('flex');
+                currentEditingId = null;
+                renderList();
+            }, 300);
+        }
+
+        function saveCurrentEditorState() {
+            if (!currentEditingId) return;
+            const item = items.find(i => i.id === currentEditingId);
+            if (item) {
+                item.title = editorTitle.value.trim();
+                item.tags = editorTags.value.split(',').map(t => t.trim()).filter(Boolean);
+                item.location = editorLocation.value.trim();
+                item.content = editorTextarea.value;
+                item.updatedAt = Date.now();
+                saveData();
+            }
+        }
+
+        // --- Code Execution & Terminal ---
+        function executeCodePreview() {
+            const code = editorTextarea.value;
+            consoleTerminalLog.innerHTML = '';
+
+            const previewDoc = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>body { font-family: sans-serif; padding: 15px; margin: 0; }</style>
+                </head>
+                <body>
+                    ${code}
+                    <script>
+                        (function() {
+                            const originalLog = console.log;
+                            const originalError = console.error;
+                            console.log = function(...args) {
+                                window.parent.postMessage({ type: 'CONSOLE_LOG', data: args.join(' ') }, '*');
+                                originalLog.apply(console, args);
+                            };
+                            console.error = function(...args) {
+                                window.parent.postMessage({ type: 'CONSOLE_ERROR', data: args.join(' ') }, '*');
+                                originalError.apply(console, args);
+                            };
+                            window.addEventListener('error', function(e) {
+                                window.parent.postMessage({ type: 'CONSOLE_ERROR', data: e.message + ' (line ' + e.lineno + ')' }, '*');
+                            });
+                        })();
+                    <\/script>
+                </body>
+                </html>
+            `;
+
+            codePreviewFrame.srcdoc = previewDoc;
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'CONSOLE_LOG') {
+                const logItem = document.createElement('div');
+                logItem.className = 'text-emerald-400 border-b border-zinc-800/50 py-0.5';
+                logItem.textContent = '> ' + event.data.data;
+                consoleTerminalLog.appendChild(logItem);
+            } else if (event.data && event.data.type === 'CONSOLE_ERROR') {
+                const errItem = document.createElement('div');
+                errItem.className = 'text-red-400 border-b border-zinc-800/50 py-0.5';
+                errItem.textContent = '! Error: ' + event.data.data;
+                consoleTerminalLog.appendChild(errItem);
+            }
+        });
+
+        function clearConsoleTerminal() {
+            consoleTerminalLog.innerHTML = '<div class="text-zinc-600">[Terminal Cleared]</div>';
+        }
+
+        // --- Preview Handler ---
+        let renderTimeout;
+        function updatePreview() {
+            const content = editorTextarea.value;
+
+            if (currentEditingType === 'mindmap') {
+                clearTimeout(renderTimeout);
+                renderTimeout = setTimeout(() => { renderMermaid(content); }, 400);
+            } else if (currentEditingType === 'code') {
+                executeCodePreview();
+            } else {
+                previewContainer.className = "prose prose-invert w-full max-w-none p-6";
+                previewContainer.innerHTML = marked.parse(content || '*No content*');
+            }
+        }
+
+        async function renderMermaid(content) {
+            previewContainer.className = "w-full h-full flex items-center justify-center p-4 mindmap-bg overflow-auto";
+            const uniqueId = 'mermaid-' + Date.now();
+
+            try {
+                const { svg } = await mermaid.render(uniqueId, content);
+                previewContainer.innerHTML = `<div class="mermaid w-full h-full">${svg}</div>`;
+            } catch (error) {
+                previewContainer.innerHTML = `
+                    <div class="bg-red-950/50 border border-red-900 text-red-400 p-4 rounded-lg w-full max-w-lg font-mono text-xs shadow-xl">
+                        <strong>Mind Map Syntax Error:</strong><br/>
+                        ${error.message || 'Check your mindmap indentation.'}
+                    </div>
+                `;
+            }
+        }
+
+        // --- Voice Input Dictation ---
+        function toggleVoiceDictation(targetInputId, btnId) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Speech recognition is not supported in this browser.");
+                return;
+            }
+
+            const btn = document.getElementById(btnId);
+
+            if (activeRecognition) {
+                activeRecognition.stop();
+                activeRecognition = null;
+                btn.classList.remove('text-red-500', 'animate-pulse');
+                return;
+            }
+
+            activeRecognition = new SpeechRecognition();
+            activeRecognition.continuous = false;
+            activeRecognition.interimResults = false;
+
+            btn.classList.add('text-red-500', 'animate-pulse');
+
+            activeRecognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                const inputElem = document.getElementById(targetInputId);
+                inputElem.value += (inputElem.value ? ' ' : '') + transcript;
+                saveCurrentEditorState();
+                updatePreview();
+            };
+
+            activeRecognition.onend = () => {
+                btn.classList.remove('text-red-500', 'animate-pulse');
+                activeRecognition = null;
+            };
+
+            activeRecognition.start();
+        }
+
+        // --- Location Detector ---
+        function getCurrentLocation() {
+            if (navigator.geolocation) {
+                editorLocation.placeholder = "Detecting...";
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    editorLocation.value = `Lat: ${pos.coords.latitude.toFixed(2)}, Lon: ${pos.coords.longitude.toFixed(2)}`;
+                    saveCurrentEditorState();
+                }, () => {
+                    editorLocation.placeholder = "Location unavailable";
+                });
+            }
+        }
+
+        // --- Delete Modal Handlers ---
+        function confirmDelete() {
+            confirmModal.classList.remove('hidden');
+            setTimeout(() => {
+                confirmModal.classList.remove('opacity-0');
+                confirmBox.classList.remove('scale-95');
+            }, 10);
+        }
+
+        function closeModal() {
+            confirmModal.classList.add('opacity-0');
+            confirmBox.classList.add('scale-95');
+            setTimeout(() => { confirmModal.classList.add('hidden'); }, 200);
+        }
+
+        function executeDelete() {
+            if (currentEditingId) {
+                items = items.filter(i => i.id !== currentEditingId);
+                saveData();
+                closeModal();
+                editorView.classList.add('translate-x-full');
+                setTimeout(() => {
+                    editorView.classList.add('hidden');
+                    editorView.classList.remove('flex');
+                    currentEditingId = null;
+                    renderList();
+                }, 300);
+            }
+        }
+
+        // --- Event Listeners Setup ---
+        function setupEventListeners() {
+            [editorTextarea, editorTitle, editorTags, editorLocation].forEach(elem => {
+                elem.addEventListener('input', () => {
+                    saveCurrentEditorState();
+                    updatePreview();
+                });
+            });
+
+            toggleLayoutBtn.addEventListener('click', () => {
+                isSplitView = !isSplitView;
+                if (isSplitView) {
+                    editorPreviewPane.classList.remove('hidden');
+                    editorPreviewPane.classList.add('md:flex');
+                } else {
+                    editorPreviewPane.classList.add('hidden');
+                    editorPreviewPane.classList.remove('md:flex');
+                }
+            });
+
+            searchInput.addEventListener('input', (e) => {
+                searchQuery = e.target.value;
+                renderList();
+            });
+
+            sortSelect.addEventListener('change', (e) => {
+                sortMode = e.target.value;
+                renderList();
+            });
+        }
+
+        function escapeHtml(unsafe) {
+            return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>

@@ -1,14 +1,17 @@
-# Cloudflare Pages reads this file automatically (Netlify uses the same format).
-# Put it in the same folder as index.html.
+# Cloudflare Pages / Workers assets read this file automatically.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  X-Frame-Options: DENY
-  Permissions-Policy: geolocation=(self), microphone=(self), camera=(self)
+  # SAMEORIGIN (not DENY) so Knight can show its own Notes and Arcade pages inside itself.
+  X-Frame-Options: SAMEORIGIN
+  Permissions-Policy: geolocation=(self), microphone=(self), camera=(self), gamepad=(self), autoplay=(self)
 
-# Don't let browsers or the CDN cache the two files you edit most, so a
-# redeploy shows up immediately instead of after a stale-cache delay.
+# Don't let browsers or the CDN cache the files you edit most.
 /index.html
+  Cache-Control: no-cache
+/notes.html
+  Cache-Control: no-cache
+/arcade.html
   Cache-Control: no-cache
 /config.js
   Cache-Control: no-cache

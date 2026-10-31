@@ -1,4 +1,4 @@
-<!-- Add inside <dependencies> in backend/pom.xml (required for the WebSocket server): -->
+<!-- Add inside <dependencies> in backend/pom.xml (required for the multiplayer WebSocket): -->
 <dependency>
   <groupId>org.springframework.boot</groupId>
   <artifactId>spring-boot-starter-websocket</artifactId>

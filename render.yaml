@@ -25,3 +25,7 @@ services:
       # own key in Settings.
       - key: OPENROUTER_API_KEY
         sync: false
+      # Optional: where the terminal compiler runs non-JavaScript code. Defaults to the free
+      # public https://ce.judge0.com (rate limited). Point this at your own Judge0 for heavy use.
+      - key: JUDGE0_URL
+        sync: false

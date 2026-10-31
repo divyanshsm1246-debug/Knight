@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Arcade Hub</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Righteous&family=Russo+One&display=swap');
+
+        body {
+            background-color: #0d0d0d;
+            color: #e5e5e5;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+
+        /* Minimalist Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+        /* Nav Item Active State */
+        .nav-item.active {
+            background-color: #262626;
+            color: #fff;
+            border-left: 3px solid #60a5fa;
+        }
+
+        /* Memory Game Styles */
+        .card {
+            background-color: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: transparent;
+        }
+        .card:hover { background-color: #222; }
+        .card.flipped {
+            background-color: #2a2a2a;
+            color: #60a5fa;
+            transform: scale(0.95);
+        }
+        .card.matched {
+            background-color: #152515;
+            border-color: #2d5a2d;
+            color: #4ade80;
+            cursor: default;
+        }
+
+        .btn-minimal {
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 20px;
+            padding: 6px 16px;
+            font-size: 0.875rem;
+            color: #e5e5e5;
+            transition: all 0.2s;
+        }
+        .btn-minimal:hover { background-color: #2a2a2a; border-color: #444; }
+
+        /* Dragon Breath Specifics */
+        #dragon-canvas {
+            display: block;
+            background: linear-gradient(to bottom, #020208, #101025);
+            border-radius: 8px;
+            box-shadow: 0 0 40px rgba(0, 255, 255, 0.1);
+        }
+
+        /* Gamepad Tester Specifics */
+        .gamepad-container {
+            position: relative;
+            width: 600px;
+            height: 400px;
+            background: radial-gradient(circle at center, #222 0%, #111 100%);
+            border-radius: 40px;
+            border: 2px solid #333;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.8), 0 20px 50px rgba(0,0,0,0.5);
+        }
+        .stick-base {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: #0a0a0a;
+            border-radius: 50%;
+            border: 2px solid #222;
+            box-shadow: inset 0 0 10px #000;
+        }
+        .stick-cap {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #444, #222);
+            border-radius: 50%;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5), inset 0 2px 2px rgba(255,255,255,0.1);
+            transition: transform 0.05s ease-out;
+        }
+        .gp-btn {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #333, #1a1a1a);
+            border-radius: 50%;
+            border: 1px solid #111;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.6), inset 0 2px 2px rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #666;
+            transition: all 0.1s;
+        }
+        .gp-btn.active {
+            background: #4ade80;
+            color: #000;
+            box-shadow: 0 0 15px #4ade80;
+            transform: translateY(2px);
+        }
+        .trigger {
+            position: absolute;
+            width: 80px; height: 30px;
+            background: #222;
+            border-radius: 10px 10px 0 0;
+            top: -30px;
+            transition: all 0.1s;
+        }
+        .trigger-fill {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: #60a5fa; height: 0%; border-radius: 10px 10px 0 0;
+            transition: height 0.1s;
+        }
+    </style>
+</head>
+<body class="flex h-screen antialiased">
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-[#141414] border-r border-[#262626] flex flex-col">
+        <div class="p-6 border-b border-[#262626]">
+            <h1 class="text-xl font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">ARCADE HUB</h1>
+        </div>
+        <nav class="flex-1 overflow-y-auto py-4">
+            <button onclick="switchTab('memory')" id="tab-memory" class="nav-item active w-full text-left px-6 py-3 transition-colors flex items-center gap-3">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                Memory Match
+            </button>
+            <button onclick="switchTab('gamepad')" id="tab-gamepad" class="nav-item w-full text-left px-6 py-3 transition-colors flex items-center gap-3 text-gray-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path></svg>
+                Gamepad Tester
+            </button>
+            <button onclick="switchTab('dragon')" id="tab-dragon" class="nav-item w-full text-left px-6 py-3 transition-colors flex items-center gap-3 text-gray-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z"></path></svg>
+                Dragon Breath
+            </button>
+        </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 relative">
+
+        <!-- MEMORY MATCH MODULE -->
+        <div id="module-memory" class="absolute inset-0 flex flex-col items-center justify-center p-8 transition-opacity duration-300 z-10">
+            <div class="w-[400px]">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="text-sm text-gray-400">
+                        Moves: <span id="mem-moves">0</span> &middot; Matches: <span id="mem-matches">0/8</span>
+                    </div>
+                </div>
+                <button onclick="initMemory()" class="btn-minimal mb-6">Restart</button>
+                <div id="memory-grid" class="grid grid-cols-4 gap-4 w-full aspect-square"></div>
+            </div>
+        </div>
+
+        <!-- GAMEPAD TESTER MODULE -->
+        <div id="module-gamepad" class="absolute inset-0 flex flex-col items-center justify-center p-8 opacity-0 pointer-events-none transition-opacity duration-300 z-0">
+            <h2 class="text-2xl font-bold mb-2">Gamepad Diagnostics</h2>
+            <p id="gp-status" class="text-gray-400 mb-8">Connect a controller and press any button.</p>
+
+            <div class="gamepad-container" id="gp-visualizer">
+                <div class="stick-base" style="top: 150px; left: 100px;">
+                    <div class="stick-cap" id="gp-ls"></div>
+                </div>
+                <div class="stick-base" style="top: 220px; right: 180px;">
+                    <div class="stick-cap" id="gp-rs"></div>
+                </div>
+                <div class="absolute" style="top: 230px; left: 220px;">
+                    <div class="w-[90px] h-[90px] bg-[#1a1a1a] rounded-full border border-[#333] relative flex items-center justify-center">
+                        <div id="gp-dup" class="absolute top-1 w-6 h-6 bg-[#333] rounded-sm"></div>
+                        <div id="gp-ddown" class="absolute bottom-1 w-6 h-6 bg-[#333] rounded-sm"></div>
+                        <div id="gp-dleft" class="absolute left-1 w-6 h-6 bg-[#333] rounded-sm"></div>
+                        <div id="gp-dright" class="absolute right-1 w-6 h-6 bg-[#333] rounded-sm"></div>
+                        <div class="w-6 h-6 bg-[#333] rounded-sm"></div>
+                    </div>
+                </div>
+                <div class="absolute" style="top: 130px; right: 80px; width: 120px; height: 120px;">
+                    <div id="gp-b3" class="gp-btn" style="top: 0; left: 40px;">Y</div>
+                    <div id="gp-b1" class="gp-btn" style="top: 40px; right: 0;">B</div>
+                    <div id="gp-b0" class="gp-btn" style="bottom: 0; left: 40px;">A</div>
+                    <div id="gp-b2" class="gp-btn" style="top: 40px; left: 0;">X</div>
+                </div>
+                <div class="trigger" style="left: 100px;">
+                    <div class="trigger-fill" id="gp-lt"></div>
+                </div>
+                <div class="trigger" style="right: 100px;">
+                    <div class="trigger-fill" id="gp-rt"></div>
+                </div>
+                <div id="gp-lb" class="absolute w-[80px] h-[20px] bg-[#333] rounded-full" style="top: 20px; left: 100px;"></div>
+                <div id="gp-rb" class="absolute w-[80px] h-[20px] bg-[#333] rounded-full" style="top: 20px; right: 100px;"></div>
+            </div>
+        </div>
+
+        <!-- DRAGON BREATH MODULE -->
+        <div id="module-dragon" class="absolute inset-0 flex flex-col items-center justify-center bg-[#050510] opacity-0 pointer-events-none transition-opacity duration-300 z-0">
+            <canvas id="gameCanvas" width="900" height="600" class="font-['Russo_One']"></canvas>
+            <div class="absolute inset-0 pointer-events-none" style="background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%); background-size: 100% 4px;"></div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- HUB NAVIGATION LOGIC ---
+        let currentTab = 'memory';
+        let dragonLoopActive = false;
+        let gamepadLoopActive = false;
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.nav-item').forEach(el => {
+                el.classList.remove('active', 'text-white');
+                el.classList.add('text-gray-400');
+                el.style.borderLeft = 'none';
+            });
+            const activeTab = document.getElementById(`tab-${tabId}`);
+            activeTab.classList.add('active', 'text-white');
+            activeTab.classList.remove('text-gray-400');
+            activeTab.style.borderLeft = '3px solid #60a5fa';
+
+            ['memory', 'gamepad', 'dragon'].forEach(id => {
+                const el = document.getElementById(`module-${id}`);
+                if (id === tabId) {
+                    el.classList.remove('opacity-0', 'pointer-events-none', 'z-0');
+                    el.classList.add('opacity-100', 'z-10');
+                } else {
+                    el.classList.add('opacity-0', 'pointer-events-none', 'z-0');
+                    el.classList.remove('opacity-100', 'z-10');
+                }
+            });
+
+            currentTab = tabId;
+
+            dragonLoopActive = (tabId === 'dragon');
+            if (tabId === 'gamepad' && !gamepadLoopActive) {
+                gamepadLoopActive = true;
+                pollGamepads();
+            } else if (tabId !== 'gamepad') {
+                gamepadLoopActive = false;
+            }
+            if (tabId === 'dragon') window.focus();
+        }
+
+        // ==========================================
+        // 1. MEMORY MATCH GAME
+        // ==========================================
+        const emojis = ['🎮', '🕹️', '👾', '🎲', '🎧', '💻', '🔋', '🏆'];
+        let cards = [];
+        let flippedCards = [];
+        let moves = 0;
+        let matches = 0;
+        let isLocked = false;
+
+        function initMemory() {
+            const grid = document.getElementById('memory-grid');
+            grid.innerHTML = '';
+            cards = [...emojis, ...emojis].sort(() => Math.random() - 0.5);
+            flippedCards = [];
+            moves = 0;
+            matches = 0;
+            isLocked = false;
+            updateMemStats();
+
+            cards.forEach((emoji, index) => {
+                const card = document.createElement('div');
+                card.className = 'card h-[85px] sm:h-[100px] w-full';
+                card.dataset.val = emoji;
+                card.dataset.index = index;
+                card.onclick = () => flipCard(card);
+                grid.appendChild(card);
+            });
+        }
+
+        function flipCard(card) {
+            if (isLocked || card.classList.contains('flipped') || card.classList.contains('matched')) return;
+
+            card.classList.add('flipped');
+            card.textContent = card.dataset.val;
+            flippedCards.push(card);
+
+            if (flippedCards.length === 2) {
+                moves++;
+                updateMemStats();
+                checkForMatch();
+            }
+        }
+
+        function checkForMatch() {
+            isLocked = true;
+            const [c1, c2] = flippedCards;
+
+            if (c1.dataset.val === c2.dataset.val) {
+                matches++;
+                updateMemStats();
+                setTimeout(() => {
+                    c1.classList.add('matched');
+                    c2.classList.add('matched');
+                    resetBoard();
+                }, 500);
+            } else {
+                setTimeout(() => {
+                    c1.classList.remove('flipped');
+                    c1.textContent = '';
+                    c2.classList.remove('flipped');
+                    c2.textContent = '';
+                    resetBoard();
+                }, 1000);
+            }
+        }
+
+        function resetBoard() {
+            flippedCards = [];
+            isLocked = false;
+        }
+
+        function updateMemStats() {
+            document.getElementById('mem-moves').textContent = moves;
+            document.getElementById('mem-matches').textContent = `${matches}/8`;
+        }
+
+        initMemory();
+
+
+        // ==========================================
+        // 2. GAMEPAD TESTER
+        // ==========================================
+        window.addEventListener("gamepadconnected", (e) => {
+            document.getElementById('gp-status').textContent = `Connected: ${e.gamepad.id}`;
+            document.getElementById('gp-status').classList.remove('text-gray-400');
+            document.getElementById('gp-status').classList.add('text-green-400');
+        });
+
+        window.addEventListener("gamepaddisconnected", (e) => {
+            document.getElementById('gp-status').textContent = 'Controller disconnected.';
+            document.getElementById('gp-status').classList.add('text-gray-400');
+            document.getElementById('gp-status').classList.remove('text-green-400');
+        });
+
+        function pollGamepads() {
+            if (!gamepadLoopActive) return;
+
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            let gp = null;
+            for (let i = 0; i < gamepads.length; i++) {
+                if (gamepads[i]) { gp = gamepads[i]; break; }
+            }
+
+            if (gp) {
+                const lsX = gp.axes[0] * 25; const lsY = gp.axes[1] * 25;
+                document.getElementById('gp-ls').style.transform = `translate(calc(-50% + ${lsX}px), calc(-50% + ${lsY}px))`;
+
+                const rsX = gp.axes[2] * 25; const rsY = gp.axes[3] * 25;
+                document.getElementById('gp-rs').style.transform = `translate(calc(-50% + ${rsX}px), calc(-50% + ${rsY}px))`;
+
+                for (let i = 0; i < 4; i++) {
+                    const btn = document.getElementById(`gp-b${i}`);
+                    if (btn) gp.buttons[i].pressed ? btn.classList.add('active') : btn.classList.remove('active');
+                }
+
+                document.getElementById('gp-lb').style.background = gp.buttons[4]?.pressed ? '#60a5fa' : '#333';
+                document.getElementById('gp-rb').style.background = gp.buttons[5]?.pressed ? '#60a5fa' : '#333';
+
+                if (gp.buttons[6]) document.getElementById('gp-lt').style.height = `${gp.buttons[6].value * 100}%`;
+                if (gp.buttons[7]) document.getElementById('gp-rt').style.height = `${gp.buttons[7].value * 100}%`;
+
+                document.getElementById('gp-dup').style.background = gp.buttons[12]?.pressed ? '#60a5fa' : '#333';
+                document.getElementById('gp-ddown').style.background = gp.buttons[13]?.pressed ? '#60a5fa' : '#333';
+                document.getElementById('gp-dleft').style.background = gp.buttons[14]?.pressed ? '#60a5fa' : '#333';
+                document.getElementById('gp-dright').style.background = gp.buttons[15]?.pressed ? '#60a5fa' : '#333';
+            }
+
+            requestAnimationFrame(pollGamepads);
+        }
+
+
+        // ==========================================
+        // 3. DRAGON BREATH GAME
+        // ==========================================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let state = 'MENU'; // MENU, PLAYING, GAMEOVER
+        let frame = 0;
+        let score = 0;
+        let combo = 0;
+        let comboTimer = 0;
+        let cameraShake = 0;
+
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            if (currentTab === 'dragon' && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+                e.preventDefault();
+            }
+            keys[e.code] = true;
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        // --- AUDIO SYSTEM (Procedural Synth) ---
+        let audioCtx;
+        function initAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        function playSound(type) {
+            if (!audioCtx || currentTab !== 'dragon') return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+
+            if (type === 'beam') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(100, now);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now); osc.stop(now + 0.3);
+            } else if (type === 'hit') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'explosion') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(50, now);
+                osc.frequency.exponentialRampToValueAtTime(10, now + 0.4);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                osc.start(now); osc.stop(now + 0.4);
+            }
+        }
+
+        // --- CLASSES ---
+        class Particle {
+            constructor(x, y, color, speed, size) {
+                this.x = x; this.y = y;
+                this.vx = (Math.random() - 0.5) * speed;
+                this.vy = (Math.random() - 0.5) * speed;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.03 + 0.02;
+                this.color = color;
+                this.size = size || (Math.random() * 3 + 2);
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        class DamageText {
+            constructor(x, y, amount, isCritical) {
+                this.x = x + (Math.random() - 0.5) * 20;
+                this.y = y + (Math.random() - 0.5) * 20;
+                this.amount = amount;
+                this.life = 1.0;
+                this.isCrit = isCritical;
+            }
+            update() {
+                this.y -= 1.5;
+                this.life -= 0.02;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.font = this.isCrit ? 'bold 24px "Russo One"' : '18px "Russo One"';
+                ctx.fillStyle = this.isCrit ? '#ff00ff' : '#00ffff';
+                ctx.textAlign = 'center';
+                ctx.fillText(this.amount, this.x, this.y);
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        class Dragon {
+            constructor() {
+                this.head = { x: 200, y: 300 };
+                this.segments = [];
+                this.numSegments = 15;
+                this.segmentDist = 12;
+                this.speed = 6;
+                this.hp = 100;
+                this.maxHp = 100;
+                this.energy = 100;
+                this.maxEnergy = 100;
+                this.isBreathing = false;
+
+                for (let i = 0; i < this.numSegments; i++) {
+                    this.segments.push({ x: this.head.x - i * this.segmentDist, y: this.head.y });
+                }
+            }
+
+            update() {
+                let dx = 0; let dy = 0;
+                if (keys['ArrowUp'] || keys['KeyW']) dy -= this.speed;
+                if (keys['ArrowDown'] || keys['KeyS']) dy += this.speed;
+                if (keys['ArrowLeft'] || keys['KeyA']) dx -= this.speed;
+                if (keys['ArrowRight'] || keys['KeyD']) dx += this.speed;
+
+                this.head.x = Math.max(50, Math.min(canvas.width - 200, this.head.x + dx));
+                this.head.y = Math.max(50, Math.min(canvas.height - 50, this.head.y + dy));
+
+                this.segments[0].x = this.head.x;
+                this.segments[0].y = this.head.y;
+
+                for (let i = 1; i < this.numSegments; i++) {
+                    let cur = this.segments[i];
+                    let prev = this.segments[i - 1];
+                    let distX = prev.x - cur.x;
+                    let distY = prev.y - cur.y;
+                    let dist = Math.hypot(distX, distY);
+
+                    if (dist > this.segmentDist) {
+                        cur.x += distX * 0.4;
+                        cur.y += distY * 0.4;
+                    }
+                    cur.y += Math.sin((frame * 0.1) - (i * 0.3)) * 1.5;
+                }
+
+                this.isBreathing = false;
+                if (keys['Space'] && this.energy > 5) {
+                    this.isBreathing = true;
+                    this.energy -= 1.2;
+                    cameraShake = 5;
+                    if (frame % 5 === 0) playSound('beam');
+                    this.head.x -= 0.5;
+                } else {
+                    this.energy = Math.min(this.maxEnergy, this.energy + 0.5);
+                }
+            }
+
+            draw(ctx) {
+                for (let i = this.numSegments - 1; i >= 0; i--) {
+                    let seg = this.segments[i];
+                    let size = Math.max(2, 18 - (i * 1.0));
+
+                    ctx.beginPath();
+                    ctx.arc(seg.x, seg.y, size, 0, Math.PI * 2);
+                    ctx.fillStyle = i % 2 === 0 ? '#111' : '#00ffff';
+                    ctx.fill();
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#00ffff';
+                    ctx.stroke();
+
+                    if (i % 3 === 0 && i !== 0) {
+                        ctx.fillStyle = 'rgba(0, 255, 255, 0.6)';
+                        ctx.beginPath();
+                        ctx.moveTo(seg.x, seg.y - size);
+                        ctx.lineTo(seg.x - 15, seg.y - size - 15);
+                        ctx.lineTo(seg.x - 5, seg.y - size);
+                        ctx.fill();
+                    }
+                }
+
+                ctx.fillStyle = '#111';
+                ctx.beginPath();
+                ctx.ellipse(this.head.x + 10, this.head.y, 25, 15, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.arc(this.head.x + 20, this.head.y - 5, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.moveTo(this.head.x, this.head.y - 12);
+                ctx.lineTo(this.head.x - 15, this.head.y - 30);
+                ctx.lineTo(this.head.x + 5, this.head.y - 12);
+                ctx.fill();
+            }
+        }
+
+        class Enemy {
+            constructor() {
+                this.x = canvas.width + 50;
+                this.y = Math.random() * (canvas.height - 100) + 50;
+                this.type = Math.random() > 0.8 ? 'tank' : 'scout';
+
+                if (this.type === 'tank') {
+                    this.hp = 200; this.maxHp = 200; this.speed = 1.5;
+                    this.size = 30; this.color = '#ff0055';
+                } else {
+                    this.hp = 50; this.maxHp = 50; this.speed = 3 + Math.random() * 2;
+                    this.size = 15; this.color = '#aa00ff';
+                }
+                this.offset = Math.random() * 100;
+            }
+
+            update() {
+                this.x -= this.speed;
+                if (this.type === 'scout') {
+                    this.y += Math.sin(frame * 0.05 + this.offset) * 2;
+                }
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+
+                ctx.beginPath();
+                if (this.type === 'tank') {
+                    for (let i = 0; i < 6; i++) {
+                        let angle = (i * Math.PI) / 3;
+                        let px = this.x + Math.cos(angle) * this.size;
+                        let py = this.y + Math.sin(angle) * this.size;
+                        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+                    }
+                } else {
+                    ctx.moveTo(this.x, this.y - this.size);
+                    ctx.lineTo(this.x + this.size, this.y);
+                    ctx.lineTo(this.x, this.y + this.size);
+                    ctx.lineTo(this.x - this.size, this.y);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(this.x - 5, this.y, this.size / 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (this.hp < this.maxHp) {
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(this.x - 15, this.y - this.size - 10, 30, 4);
+                    ctx.fillStyle = '#00ffff';
+                    ctx.fillRect(this.x - 15, this.y - this.size - 10, 30 * (Math.max(0, this.hp) / this.maxHp), 4);
+                }
+            }
+        }
+
+        let dragon, enemies = [], particles = [], damageTexts = [], stars = [];
+
+        function initDragonGame() {
+            initAudio();
+            dragon = new Dragon();
+            enemies = []; particles = []; damageTexts = [];
+            score = 0; combo = 0; frame = 0;
+
+            stars = [];
+            for (let i = 0; i < 100; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+                    speed: Math.random() * 2 + 0.5, size: Math.random() * 2 + 1
+                });
+            }
+        }
+
+        function spawnParticles(x, y, color, amount, speed, size) {
+            for (let i = 0; i < amount; i++) particles.push(new Particle(x, y, color, speed, size));
+        }
+
+        function handleBeamCollisions(beamY, beamHeight) {
+            let beamRect = { x: dragon.head.x + 20, y: beamY, w: canvas.width, h: beamHeight };
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i];
+                if (e.x > beamRect.x && Math.abs(e.y - dragon.head.y) < (beamHeight / 2 + e.size)) {
+                    let dmg = Math.floor(Math.random() * 5 + 5);
+                    let isCrit = Math.random() > 0.8;
+                    if (isCrit) dmg *= 2;
+
+                    e.hp -= dmg;
+                    spawnParticles(e.x - e.size, e.y, '#00ffff', 2, 5, 2);
+
+                    if (frame % 4 === 0) {
+                        damageTexts.push(new DamageText(e.x, e.y - 20, dmg, isCrit));
+                        playSound('hit');
+                    }
+
+                    combo++; comboTimer = 100;
+                    score += Math.floor(dmg * (1 + combo / 100));
+
+                    if (e.hp <= 0) {
+                        spawnParticles(e.x, e.y, e.color, 30, 10, 4);
+                        playSound('explosion');
+                        cameraShake = 15;
+                        enemies.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        function updateDragonGame() {
+            frame++;
+
+            if (state === 'MENU' || state === 'GAMEOVER') {
+                if (keys['Space'] || keys['Enter']) {
+                    initDragonGame();
+                    state = 'PLAYING';
+                    keys['Space'] = false; keys['Enter'] = false;
+                }
+                return;
+            }
+
+            if (cameraShake > 0) cameraShake *= 0.8;
+            if (cameraShake < 0.5) cameraShake = 0;
+
+            stars.forEach(s => {
+                s.x -= s.speed + (dragon.isBreathing ? 5 : 0);
+                if (s.x < 0) { s.x = canvas.width; s.y = Math.random() * canvas.height; }
+            });
+
+            dragon.update();
+
+            let spawnRate = Math.max(20, 100 - Math.floor(frame / 60));
+            if (frame % spawnRate === 0) enemies.push(new Enemy());
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i];
+                e.update();
+
+                let dx = e.x - dragon.head.x, dy = e.y - dragon.head.y;
+                if (Math.hypot(dx, dy) < e.size + 15) {
+                    dragon.hp -= 15;
+                    combo = 0; cameraShake = 20; playSound('explosion');
+                    spawnParticles(dragon.head.x, dragon.head.y, '#ff0000', 40, 15, 3);
+                    enemies.splice(i, 1);
+
+                    if (dragon.hp <= 0) {
+                        state = 'GAMEOVER';
+                        playSound('explosion');
+                    }
+                    continue;
+                }
+                if (e.x < -50) { enemies.splice(i, 1); combo = 0; }
+            }
+
+            particles.forEach(p => p.update());
+            particles = particles.filter(p => p.life > 0);
+            damageTexts.forEach(dt => dt.update());
+            damageTexts = damageTexts.filter(dt => dt.life > 0);
+
+            if (comboTimer > 0) {
+                comboTimer--;
+                if (comboTimer <= 0) combo = 0;
+            }
+        }
+
+        function drawDragonGame() {
+            ctx.save();
+            if (cameraShake > 0) {
+                let sx = (Math.random() - 0.5) * cameraShake;
+                let sy = (Math.random() - 0.5) * cameraShake;
+                ctx.translate(sx, sy);
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#fff';
+            stars.forEach(s => {
+                let length = dragon?.isBreathing ? s.speed * 10 : s.speed;
+                ctx.fillRect(s.x, s.y, length, s.size);
+            });
+
+            if (state === 'MENU') {
+                ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.textAlign = 'center'; ctx.fillStyle = '#00ffff';
+                ctx.font = '60px "Russo One"'; ctx.shadowBlur = 20; ctx.shadowColor = '#00ffff';
+                ctx.fillText("DRAGON BREATH", canvas.width / 2, 250);
+
+                ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '24px "Russo One"';
+                if (Math.floor(Date.now() / 500) % 2 === 0) ctx.fillText("Press SPACE to Start", canvas.width / 2, 350);
+
+                ctx.font = '16px "Inter"'; ctx.fillStyle = '#aaa';
+                ctx.fillText("WASD/Arrows to Move | Hold SPACE to Fire Breath", canvas.width / 2, 420);
+                ctx.restore();
+                return;
+            }
+
+            dragon.draw(ctx);
+            enemies.forEach(e => e.draw(ctx));
+
+            if (dragon.isBreathing) {
+                let beamY = dragon.head.y + (Math.sin(frame * 0.5) * 2);
+                let beamHeight = 40 + Math.sin(frame * 0.8) * 15;
+                let beamWidth = canvas.width - dragon.head.x;
+
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.4)';
+                ctx.fillRect(dragon.head.x + 20, beamY - beamHeight / 2, beamWidth, beamHeight);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(dragon.head.x + 25, beamY - beamHeight / 4, beamWidth, beamHeight / 2);
+
+                ctx.fillStyle = 'rgba(255, 0, 255, 0.8)';
+                for (let i = 0; i < 3; i++) {
+                    let lineY = beamY + (Math.random() - 0.5) * beamHeight;
+                    ctx.fillRect(dragon.head.x + 20, lineY, beamWidth, 2);
+                }
+                ctx.globalCompositeOperation = 'source-over';
+                handleBeamCollisions(beamY, beamHeight);
+            }
+
+            particles.forEach(p => p.draw(ctx));
+            damageTexts.forEach(dt => dt.draw(ctx));
+
+            // UI Overlays
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(20, 20, 200, 20);
+            ctx.fillStyle = '#ff0055';
+            ctx.fillRect(20, 20, 200 * (Math.max(0, dragon.hp) / dragon.maxHp), 20);
+            ctx.strokeStyle = '#fff'; ctx.strokeRect(20, 20, 200, 20);
+            ctx.fillStyle = '#fff'; ctx.font = '14px "Russo One"'; ctx.textAlign = 'left';
+            ctx.fillText("HP", 25, 35);
+
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(20, 50, 200, 15);
+            ctx.fillStyle = '#00ffff';
+            ctx.fillRect(20, 50, 200 * (dragon.energy / dragon.maxEnergy), 15);
+            ctx.strokeRect(20, 50, 200, 15);
+            ctx.fillStyle = '#fff'; ctx.fillText("ENERGY", 25, 62);
+
+            ctx.textAlign = 'right'; ctx.font = '24px "Russo One"'; ctx.fillStyle = '#fff';
+            ctx.fillText("SCORE: " + score, canvas.width - 20, 40);
+
+            if (combo > 1) {
+                ctx.fillStyle = '#ff00ff'; ctx.font = (30 + Math.min(20, combo)) + 'px "Russo One"';
+                ctx.shadowBlur = 10; ctx.shadowColor = '#ff00ff';
+                ctx.fillText(combo + "x COMBO!", canvas.width - 20, 80);
+                ctx.shadowBlur = 0; ctx.fillStyle = '#ff00ff';
+                ctx.fillRect(canvas.width - 120, 95, 100 * (comboTimer / 100), 4);
+            }
+
+            if (state === 'GAMEOVER') {
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.2)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.textAlign = 'center'; ctx.fillStyle = '#ff0055';
+                ctx.font = '60px "Russo One"'; ctx.shadowBlur = 20; ctx.shadowColor = '#ff0000';
+                ctx.fillText("WASTED", canvas.width / 2, 250);
+
+                ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '24px "Russo One"';
+                ctx.fillText("FINAL SCORE: " + score, canvas.width / 2, 310);
+                if (Math.floor(Date.now() / 500) % 2 === 0) ctx.fillText("Press SPACE to Restart", canvas.width / 2, 380);
+            }
+
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            if (dragonLoopActive) {
+                if (!dragon) initDragonGame();
+                updateDragonGame();
+                drawDragonGame();
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>

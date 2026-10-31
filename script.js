@@ -343,7 +343,13 @@ async function doSignIn(email, password) {
   DB.server('/api/auth/signin', {
     method: 'POST', authEmail: key,
     body: JSON.stringify({ email: key, passHash: hash }),
-  }).then(r => { if (r && r.token) DB.setBackendToken(key, r.token); });
+  }).then(async (r) => {
+    if (r && r.token) { DB.setBackendToken(key, r.token); return; }
+    // Account was created before a backend existed: register it now so other devices can find this person.
+    const s = await DB.server('/api/auth/signup', { method: 'POST', authEmail: key,
+      body: JSON.stringify({ email: key, username: user.username, passHash: hash, socialId: user.socialId }) });
+    if (s && s.token) DB.setBackendToken(key, s.token);
+  });
 
   return user;
 }
@@ -609,7 +615,7 @@ const ROUTES = {
   'studio':    { page: 'studioPage',        title: 'Studio' },
   'comm':      { page: 'commPage',          title: 'Communication' },
   'social':    { page: 'socialPage',        title: 'Social' },
-  'notes':     { page: 'notesPage',         title: 'Data-Base' },
+  'notes':     { page: 'notesPage',         title: 'Notes' },
   'arcade':    { page: 'arcadePage',        title: 'Arcade' },
   'booster':   { page: 'gameBoosterPage',   title: 'Game Booster' },
   'deploy':    { page: 'linkDeployerPage',  title: 'Link Deployer' },
@@ -664,6 +670,7 @@ function handleRoute() {
 }
 
 function openDashboard() {
+  document.body.classList.remove('info-open');
   $$('.knight-page').forEach(p => p.classList.remove('active'));
   $('notFoundPage').classList.remove('active');
   $('dashboard').style.display = 'block';
@@ -694,6 +701,7 @@ function openKnightPage(pageId, fromRouter = false) {
   $('notFoundPage').classList.remove('active');
   $('dashboard').style.display = 'none';
   page.classList.add('active');
+  document.body.classList.add('info-open');
   window.scrollTo(0, 0);
   updateServerButtonContext(pageId);
 
@@ -705,8 +713,8 @@ function openKnightPage(pageId, fromRouter = false) {
     studioPage:       renderStudio,
     socialPage:       renderSocialPage,
     commPage:         renderCommPage,
-    notesPage:        () => { renderNotes(); renderDbAnalytics(); },
-    arcadePage:       startMemoryGame,
+    notesPage:        () => loadEmbed('notesFrame'),
+    arcadePage:       () => loadEmbed('arcadeFrame'),
     gameBoosterPage:  renderGameBooster,
     linkDeployerPage: renderLinkDeployer,
     settingsPage:     renderSettings,
@@ -715,18 +723,31 @@ function openKnightPage(pageId, fromRouter = false) {
       if (terminalProjectId && DB.data().projects[terminalProjectId]) {
         openTerminalWorkspace(terminalProjectId);
       } else {
-        $('termNoProjectHint').style.display = 'block';
-        $('termWorkspace').style.display = 'none';
+        // No project open: the terminal is simply a compiler for every language.
+        $('termNoProjectHint').style.display = 'none';
+        $('termWorkspace').style.display = 'block';
+        $$('.term-ws-tab').forEach(t => { t.style.display = t.dataset.wtab === 'run' ? '' : 'none'; });
+        setTermWorkspaceTab('run');
       }
+      buildCompilerUI();
     },
   }[pageId] || (() => {}))();
 
   if (pageId !== 'terminalPage') stopTermFps();
 }
 
+/** Notes and Arcade are full apps in their own files; load them only while their page is open. */
+function loadEmbed(frameId) {
+  const f = $(frameId);
+  if (f && !f.getAttribute('src')) f.setAttribute('src', f.dataset.src);
+}
+function unloadEmbeds() {
+  ['notesFrame', 'arcadeFrame'].forEach(id => { const f = $(id); if (f && f.getAttribute('src')) f.setAttribute('src', 'about:blank'), f.removeAttribute('src'); });
+}
 function closeKnightPage(pageId) {
   const p = $(pageId);
   if (p) p.classList.remove('active');
+  if (pageId === 'notesPage' || pageId === 'arcadePage') unloadEmbeds();
   goHome();
 }
 
@@ -910,6 +931,31 @@ function userById(id) {
   return Object.values(DB.users()).find(u => u.id === id) || null;
 }
 
+/** Adds (or refreshes) a copy of someone from another device, keyed by their Social ID. */
+function importRemoteUser(r) {
+  if (!r || !r.socialId) return null;
+  const mine = userBySocialId(r.socialId);
+  if (mine && !mine.remote) return mine;            // a real local account wins
+  const users = DB.users(), key = 'remote:' + String(r.socialId).toLowerCase();
+  const base = users[key] || newUserRecord({ email: key, username: r.username, role: r.role });
+  Object.assign(base, {
+    id: 'rmt_' + String(r.socialId).toLowerCase(), email: key, remote: true, socialId: r.socialId,
+    username: r.username || base.username, role: r.role || base.role, bio: r.bio || '',
+    level: r.level || 1, followers: r.followers || 0, commits: r.commits || 0, lastSeen: Date.now(),
+  });
+  users[key] = base; DB.saveUsers(users);
+  return base;
+}
+/** Local lookup first; otherwise ask the backend, so people on other devices can be found. */
+async function findKnight(sid) {
+  const local = userBySocialId(sid);
+  if (local) return local;
+  const clean = String(sid || '').trim();
+  if (!clean || !API_BASE) return null;
+  const r = await DB.server('/api/users/' + encodeURIComponent(clean));
+  return r ? importRemoteUser(r) : null;
+}
+
 function openPublicProfile(user) {
   if (!user) { toast('No Knight found with that Social ID.', true); return; }
   viewingProfileId = user.id;
@@ -940,13 +986,13 @@ function openPublicProfile(user) {
 
 function openModalRaw(id) { const m = $(id); if (m) m.classList.add('active'); }
 
-function viewProfileFromSocialPage() {
-  openPublicProfile(userBySocialId($('socialAddFriendInput').value));
+async function viewProfileFromSocialPage() {
+  openPublicProfile(await findKnight($('socialAddFriendInput').value));
 }
 
-function sendFriendRequest(sid) {
+async function sendFriendRequest(sid) {
   if (!requireAuth()) return;
-  const target = userBySocialId(sid);
+  const target = await findKnight(sid);
   if (!target) { toast('No Knight found with that Social ID.', true); return; }
   if (target.id === myId()) { toast('That is your own Social ID.', true); return; }
   if ((me().friends || []).includes(target.id)) { toast('You are already friends.'); return; }
@@ -958,6 +1004,7 @@ function sendFriendRequest(sid) {
   d.friendRequests.push({ id: uid('req'), from: myId(), to: target.id, status: 'pending', at: Date.now() });
   DB.saveData(d);
   pushNotification(target.id, 'Friend Request', me().username + ' wants to connect.', '#/social/' + target.socialId);
+  if (target.remote) sendSignal(target.socialId, 'friend-request', { socialId: mySid(), username: me().username, role: me().role });
   toast('Friend request sent to ' + target.username + '.');
   renderSocialPage();
 }
@@ -967,6 +1014,46 @@ function sendFriendRequestFromSocialPage(){ sendFriendRequest($('socialAddFriend
 function addFriendFromProfileUI() {
   const u = userById(viewingProfileId);
   if (u) { sendFriendRequest(u.socialId); closeModal('publicProfileModal'); }
+}
+
+/** Re-sends my still-pending requests whenever the socket (re)connects, so a person who was offline gets them later. */
+function resendPendingFriendRequests() {
+  if (!me()) return;
+  const d = DB.data();
+  d.friendRequests.filter(r => r.from === myId() && r.status === 'pending').forEach(r => {
+    const t = userById(r.to);
+    if (t && t.remote) sendSignal(t.socialId, 'friend-request', { socialId: mySid(), username: me().username, role: me().role });
+  });
+}
+
+/** One-off messages from other devices (friend requests, acceptances). */
+function handleSignal(msg) {
+  const data = msg.data || {};
+  if (msg.kind === 'friend-request' && data.socialId) {
+    const from = importRemoteUser(data); if (!from) return;
+    const d = DB.data();
+    const dupe = d.friendRequests.some(r => r.from === from.id && r.to === myId() && r.status === 'pending');
+    const already = (me().friends || []).includes(from.id);
+    if (dupe || already) return;
+    d.friendRequests.push({ id: uid('req'), from: from.id, to: myId(), status: 'pending', at: Date.now() });
+    DB.saveData(d);
+    pushNotification(myId(), 'Friend Request', from.username + ' wants to connect.', '#/social/' + from.socialId);
+    toast(from.username + ' sent you a friend request.');
+    if (typeof renderSocialPage === 'function') renderSocialPage();
+  }
+  if (msg.kind === 'friend-accept' && data.socialId) {
+    const other = importRemoteUser(data); if (!other) return;
+    const users = DB.users();
+    const meRec = users[CURRENT.email], o = users['remote:' + String(other.socialId).toLowerCase()] || other;
+    meRec.friends = Array.from(new Set([...(meRec.friends || []), o.id]));
+    DB.saveUsers(users); CURRENT = users[CURRENT.email];
+    const d = DB.data();
+    d.friendRequests.filter(r => r.from === myId() && r.to === o.id).forEach(r => { r.status = 'accepted'; });
+    DB.saveData(d);
+    pushNotification(myId(), 'Friend Request Accepted', o.username + ' accepted your request.', '#/social/' + o.socialId);
+    toast(o.username + ' is now your friend.');
+    if (typeof renderSocialPage === 'function') renderSocialPage();
+  }
 }
 
 function respondToRequest(reqId, accept) {
@@ -985,6 +1072,7 @@ function respondToRequest(reqId, accept) {
       DB.saveUsers(users);
       CURRENT = users[CURRENT.email];
       pushNotification(a.id, 'Friend Request Accepted', b.username + ' accepted your request.', '#/social/' + a.socialId);
+      if (a.remote) sendSignal(a.socialId, 'friend-accept', { socialId: mySid(), username: me().username, role: me().role });
     }
   }
   DB.saveData(d);
@@ -1464,7 +1552,7 @@ function renderProjectsList() {
   const mine = Object.values(d.projects).filter(p => p.ownerId === myId() || myRoleOn(p));
   const grid = $('myProjectsGrid');
   grid.innerHTML = mine.length
-    ? mine.sort((a, b) => b.updatedAt - a.updatedAt).map(p => projectCard(p, true)).join('')
+    ? mine.sort((a, b) => (isProjectPinned(b.id) - isProjectPinned(a.id)) || b.updatedAt - a.updatedAt).map(p => projectCard(p, true)).join('')
     : `<p style="font-size:.9rem;color:var(--text-tertiary);">No projects yet. Hit “+ New Project” to create your first one.</p>`;
 }
 
@@ -1480,13 +1568,15 @@ function projectCard(p, showRole) {
     <p>${esc(p.description || 'No description.')}</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;">
       <span class="social-id-chip" style="font-size:.62rem;">${esc(p.category)}</span>
-      <span class="social-id-chip" style="font-size:.62rem;">${esc(p.visibility)}</span>
+      <span class="repo-vis ${p.visibility === 'public' ? 'is-public' : 'is-private'}">${repoIcon(p.visibility === 'public' ? 'globe' : 'lock')}${esc(VIS_LABEL[p.visibility] || p.visibility)}</span>
+      ${isProjectPinned(p.id) ? `<span class="repo-vis is-pin">${repoIcon('pin')}Pinned</span>` : ''}
       ${showRole && role ? `<span class="social-id-chip" style="font-size:.62rem;">${esc(role)}</span>` : ''}
       ${!showRole && owner ? `<span class="social-id-chip" style="font-size:.62rem;">by ${esc(owner.username)}</span>` : ''}
     </div>
     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-      <div class="enter-btn" style="margin:0;">★ ${p.stars || 0} · ${fileCount} files · v${ver}</div>
+      <div class="enter-btn" style="margin:0;">★ ${p.stars || 0} · ${(p.watchedBy || []).length} watching · ${(p.branches || ['main']).length} branch${(p.branches || ['main']).length === 1 ? '' : 'es'} · ${fileCount} files · v${ver}</div>
       <div style="display:flex; gap:6px; align-items:center;">
+        <button class="card-pin-btn ${isProjectPinned(p.id) ? 'active' : ''}" title="${isProjectPinned(p.id) ? 'Unpin' : 'Pin to top'}" onclick="event.stopPropagation(); toggleProjectPin('${p.id}')">${repoIcon('pin')}</button>
         ${p.ownerId === myId() ? `<button class="card-delete-btn" title="Delete project" onclick="event.stopPropagation(); deleteProjectUI('${p.id}')">🗑</button>` : ''}
         ${hasHtml ? `<button class="nav-cta btn-golden" style="font-size:.68rem;padding:5px 10px;flex-shrink:0;" onclick="event.stopPropagation(); openProjectBuild('${p.id}')">▶ Preview</button>` : ''}
       </div>
@@ -1559,6 +1649,7 @@ function openProjectDetail(id, fromRouter = false) {
   paintAiStatus();
   renderAiProposal('project');
   renderProjectDeployPanel(p, isOwner || canEdit);
+  renderRepoBar(p, role);
   updateProjectTabCounts(p);
   setProjectTab(projectActiveTab);
 }
@@ -2183,7 +2274,7 @@ function connectAbly() {
   if (ablyClient && ablyClient.connection.state !== 'failed' && ablyClient.connection.state !== 'closed') return ablyClient;
 
   try {
-    ablyClient = new Ably.Realtime({ key: ABLY_KEY, clientId: myId() });
+    ablyClient = new Ably.Realtime({ key: ABLY_KEY, clientId: mySid() });
   } catch (e) {
     console.warn('[Knight] Ably failed to start', e);
     ablyClient = null;
@@ -2225,7 +2316,7 @@ function joinAblyChatRoom(room) {
 
 function sendAblyChat(room, text) {
   if (!ablyChatChannel || ablyChatChannel.name !== 'knight:dm:' + room) return false;
-  ablyChatChannel.publish('chat', { from: myId(), username: me().username, text });
+  ablyChatChannel.publish('chat', { from: mySid(), username: me().username, text });
   return true;
 }
 
@@ -2241,7 +2332,7 @@ async function ablyOnlineUserIds() {
   if (!ablyPresenceChannel) return [];
   return new Promise((resolve) => {
     ablyPresenceChannel.presence.get((err, members) => {
-      resolve(err || !members ? [] : members.map(m => m.clientId));
+      resolve(err || !members ? [] : members.map(m => toLocalId(m.clientId)));
     });
   });
 }
@@ -2249,6 +2340,7 @@ async function ablyOnlineUserIds() {
 let socket = null;
 let socketOnline = new Set();
 let socketRoom = null;
+const socketRooms = new Set();
 let socketReconnectTimer = null;
 
 function socketReady() {
@@ -2261,7 +2353,7 @@ function connectKnightSocket() {
 
   try {
     const url = WS_BASE + '/ws/knight?key=' + encodeURIComponent(WS_SERVER_KEY)
-      + '&userId=' + encodeURIComponent(myId()) + '&username=' + encodeURIComponent(me().username);
+      + '&userId=' + encodeURIComponent(mySid()) + '&username=' + encodeURIComponent(me().username);
     socket = new WebSocket(url);
   } catch (e) {
     console.warn('[Knight] could not open websocket', e);
@@ -2269,7 +2361,9 @@ function connectKnightSocket() {
   }
 
   socket.onopen = () => {
-    if (socketRoom) socket.send(JSON.stringify({ type: 'join', room: socketRoom }));
+    socketRooms.add('user:' + mySid());                     // my personal inbox (friend requests)
+    socketRooms.forEach(r => socket.send(JSON.stringify({ type: 'join', room: r })));
+    resendPendingFriendRequests();
     paintCommServerPill();
     clearInterval(socket._hb);   // keep-alive so proxies and browsers never close an idle socket
     const s = socket;
@@ -2290,8 +2384,15 @@ function connectKnightSocket() {
     listening to. Only one room per connection, same as the Node server. */
 function joinSocketRoom(room) {
   socketRoom = room;
+  const isNew = !socketRooms.has(room);
+  socketRooms.add(room);
   const s = connectKnightSocket();
-  if (s && s.readyState === WebSocket.OPEN) s.send(JSON.stringify({ type: 'join', room }));
+  if (s && s.readyState === WebSocket.OPEN && isNew) s.send(JSON.stringify({ type: 'join', room }));
+}
+function sendSignal(targetSid, kind, data) {
+  if (!socketReady()) return false;
+  socket.send(JSON.stringify({ type: 'signal', room: 'user:' + targetSid, kind, data }));
+  return true;
 }
 
 function paintCommServerPill() {
@@ -2300,10 +2401,16 @@ function paintCommServerPill() {
   const live = ablyReady() || socketReady();
   pill.textContent = live ? 'Live' : ((ABLY_KEY || WS_BASE) ? 'Connecting…' : 'Offline');
   pill.classList.toggle('is-on', live);
+  const hp = $('headerLivePill');
+  if (hp) { hp.textContent = live ? 'Live' : (API_BASE || ABLY_KEY ? 'Connecting…' : 'Offline'); hp.classList.toggle('is-on', live); }
 }
 
 function handleSocketMessage(msg) {
   if (!msg || !msg.type) return;
+  if (msg.type === 'pong') return;
+  if (msg.from) msg.from = toLocalId(msg.from);                       // Social ID -> this device's id
+  if (msg.messages) msg.messages.forEach(m => { m.from = toLocalId(m.from); });
+  if (msg.type === 'signal') { handleSignal(msg); return; }
 
   if (msg.type === 'history') {
     // Merge remote history into local storage without duplicating what we already have.
@@ -2332,7 +2439,7 @@ function handleSocketMessage(msg) {
   }
 
   if (msg.type === 'presence') {
-    socketOnline = new Set(msg.online || []);
+    socketOnline = new Set(msg.online || []);      // raw Social IDs, matched at draw time
     renderCommPage();
     return;
   }
@@ -2363,16 +2470,21 @@ function handleSocketMessage(msg) {
 
 let chatPeerId = null;
 
-function threadKey(a, b) { return [a, b].sort().join('::'); }
+/* A person's local user id differs on every device, but their Social ID is the same everywhere,
+   so all real-time identities (rooms, senders, presence) are expressed in Social IDs. */
+function sidOf(id) { const u = userById(id); return (u && u.socialId) || id; }
+function mySid() { return me() ? me().socialId : null; }
+function toLocalId(sid) { const u = userBySocialId(sid); return u ? u.id : sid; }
+function threadKey(a, b) { return [sidOf(a), sidOf(b)].sort().join('::'); }
 
 async function renderCommPage() {
   paintCommServerPill();
   const friends = (me().friends || []).map(userById).filter(Boolean);
-  const onlineIds = ablyReady() ? await ablyOnlineUserIds() : Array.from(socketOnline);
+  const onlineIds = ablyReady() ? await ablyOnlineUserIds() : [];
 
   $('commFriendsList').innerHTML = friends.length
     ? friends.map(f => {
-        const online = onlineIds.includes(f.id) || Date.now() - f.lastSeen < 300000;
+        const online = onlineIds.includes(f.id) || socketOnline.has(f.socialId) || Date.now() - f.lastSeen < 300000;
         return `<div class="friend-row" style="cursor:pointer;" onclick="openChatWith('${f.id}')">
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="presence-dot ${online ? 'online' : ''}"></span>
@@ -2420,7 +2532,7 @@ function sendChatMessageUI() {
   if (ablyReady() && sendAblyChat(key, text)) {
     // Ably echoes it back to us too (we're subscribed to our own channel),
     // which is what actually adds it to the thread — no local double-write.
-  } else if (socketReady() && socketRoom === key) {
+  } else if (socketReady() && socketRooms.has(key)) {
     socket.send(JSON.stringify({ type: 'chat', room: key, text }));
   } else {
     // Offline/local path — same as before, works across tabs on this device.
@@ -2463,6 +2575,7 @@ function renderNotesTagPills() {
 function setNotesTagFilter(tag) { notesActiveTag = tag; renderNotes(); }
 
 function renderNotes() {
+  if (!$('notesGrid')) return;   // the old Notes UI was replaced by notes.html
   renderNotesTagPills();
   const q = ($('notesSearchInput')?.value || '').toLowerCase();
   const sort = $('notesSortSelect')?.value || 'recent';
@@ -2944,6 +3057,7 @@ function renderBarChartSvg(rows, elId, totalElId) {
 }
 
 async function renderDbAnalytics() {
+  if (!$('dbStatsRow')) return;
   const note = $('dbAnalyticsNote');
   const remote = await fetchRemoteAnalytics();
   const data = remote || computeLocalAnalytics();
@@ -2990,47 +3104,127 @@ async function renderDbAnalytics() {
    detectable errors to find the cleanest one.
 --------------------------------------------------------------------------- */
 
-const PISTON_VERSIONS = {
-  javascript: '18.15.0', python: '3.10.0', 'c++': '10.2.0', c: '10.2.0',
-  java: '15.0.2', typescript: '5.0.3', go: '1.16.2', rust: '1.68.2',
-  php: '8.2.3', ruby: '3.0.1', bash: '5.2.0',
-};
-
 let terminalProjectId = null;
 let termRunHistory = [];   // { at, lang, status: 'ok'|'error', preview }
 
+/* Languages the terminal can compile and run. JavaScript runs right in your browser (instant, offline);
+   everything else goes through the Knight backend's /api/run, which forwards to a sandboxed Judge0 service. */
+const COMPILER_LANGS = [
+  ['javascript', 'JavaScript', 'console.log("Hello from Knight!");'],
+  ['python', 'Python', 'name = input() or "Knight"\nprint(f"Hello, {name}!")'],
+  ['typescript', 'TypeScript', 'const msg: string = "Hello from TypeScript";\nconsole.log(msg);'],
+  ['java', 'Java', 'public class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello from Java");\n  }\n}'],
+  ['c', 'C', '#include <stdio.h>\nint main() {\n  printf("Hello from C\\n");\n  return 0;\n}'],
+  ['cpp', 'C++', '#include <iostream>\nint main() {\n  std::cout << "Hello from C++" << std::endl;\n  return 0;\n}'],
+  ['csharp', 'C#', 'using System;\nclass Program {\n  static void Main() {\n    Console.WriteLine("Hello from C#");\n  }\n}'],
+  ['go', 'Go', 'package main\nimport "fmt"\nfunc main() {\n  fmt.Println("Hello from Go")\n}'],
+  ['rust', 'Rust', 'fn main() {\n    println!("Hello from Rust");\n}'],
+  ['kotlin', 'Kotlin', 'fun main() {\n    println("Hello from Kotlin")\n}'],
+  ['swift', 'Swift', 'print("Hello from Swift")'],
+  ['dart', 'Dart', 'void main() {\n  print("Hello from Dart");\n}'],
+  ['php', 'PHP', '<?php\necho "Hello from PHP\\n";'],
+  ['ruby', 'Ruby', 'puts "Hello from Ruby"'],
+  ['perl', 'Perl', 'print "Hello from Perl\\n";'],
+  ['lua', 'Lua', 'print("Hello from Lua")'],
+  ['r', 'R', 'cat("Hello from R\\n")'],
+  ['scala', 'Scala', 'object Main extends App {\n  println("Hello from Scala")\n}'],
+  ['haskell', 'Haskell', 'main :: IO ()\nmain = putStrLn "Hello from Haskell"'],
+  ['elixir', 'Elixir', 'IO.puts("Hello from Elixir")'],
+  ['fsharp', 'F#', 'printfn "Hello from F#"'],
+  ['groovy', 'Groovy', 'println "Hello from Groovy"'],
+  ['ocaml', 'OCaml', 'let () = print_endline "Hello from OCaml"'],
+  ['pascal', 'Pascal', 'program Hello;\nbegin\n  writeln(\'Hello from Pascal\');\nend.'],
+  ['fortran', 'Fortran', 'program hello\n  print *, "Hello from Fortran"\nend program hello'],
+  ['cobol', 'COBOL', '       IDENTIFICATION DIVISION.\n       PROGRAM-ID. HELLO.\n       PROCEDURE DIVISION.\n           DISPLAY "Hello from COBOL".\n           STOP RUN.'],
+  ['prolog', 'Prolog', ':- initialization(main).\nmain :- write(\'Hello from Prolog\'), nl.'],
+  ['bash', 'Bash', 'echo "Hello from Bash"'],
+  ['sql', 'SQL (SQLite)', "CREATE TABLE t(x INT);\nINSERT INTO t VALUES (1),(2),(3);\nSELECT SUM(x) FROM t;"],
+];
+const LANG_ALIASES = { 'c++': 'cpp', 'c#': 'csharp', 'f#': 'fsharp' };
+const LANG_SAMPLES = Object.fromEntries(COMPILER_LANGS.map(l => [l[0], l[2]]));
+
+function buildCompilerUI() {
+  const sel = $('termLanguage');
+  if (!sel || sel.dataset.built) return;
+  sel.innerHTML = COMPILER_LANGS.map(l => `<option value="${l[0]}">${l[1]}</option>`).join('');
+  sel.dataset.built = '1';
+  sel.dataset.last = sel.value;
+  // Switching language swaps in that language's hello-world, unless you've written your own code.
+  sel.addEventListener('change', () => {
+    const box = $('termCodeInput'), prev = LANG_SAMPLES[sel.dataset.last];
+    if (box && (!box.value.trim() || box.value === prev)) box.value = LANG_SAMPLES[sel.value] || '';
+    sel.dataset.last = sel.value;
+  });
+  const box = $('termCodeInput');
+  if (box) { box.value = LANG_SAMPLES.javascript; box.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runCodeUI(); }
+    if (e.key === 'Tab') { e.preventDefault(); const s = box.selectionStart; box.setRangeText('  ', s, box.selectionEnd, 'end'); }
+  }); }
+}
+
+/** Runs JavaScript in a throwaway Worker so a bad loop can't freeze the page (killed after 8 seconds). */
+function runJsLocally(code, stdin) {
+  return new Promise((resolve) => {
+    const head = `const out = [], lines = ${JSON.stringify(String(stdin || ''))}.split('\\n'); let li = 0;
+const fmt = (a) => a.map(x => typeof x === 'string' ? x : (() => { try { return JSON.stringify(x, null, 2); } catch { return String(x); } })()).join(' ');
+const console = { log: (...a) => out.push(fmt(a)), info: (...a) => out.push(fmt(a)), warn: (...a) => out.push(fmt(a)), error: (...a) => out.push('ERR ' + fmt(a)) };
+const prompt = () => (li < lines.length ? lines[li++] : null);
+const readline = prompt;
+const __line = (e) => { const m = /:(\\d+):\\d+/.exec(String(e && e.stack || '')); return m ? +m[1] - OFFSET : 0; };
+self.onmessage = async () => {
+  try { await (async () => {
+`;
+    const OFFSET = (head.match(/\n/g) || []).length;
+    const tail = `\n  })(); postMessage({ stdout: out.join('\\n'), stderr: '' }); }
+  catch (e) { const l = __line(e); postMessage({ stdout: out.join('\\n'), stderr: (e && e.name ? e.name + ': ' + e.message : String(e)) + (l > 0 ? '\\n    at line ' + l : '') }); }
+};`;
+    const src = head.replace('OFFSET', OFFSET) + code + tail;
+    let w, url;
+    try { url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' })); w = new Worker(url); }
+    catch (e) { resolve({ stdout: '', stderr: 'Could not start the in-browser runner: ' + e.message }); return; }
+    const done = (r) => { clearTimeout(t); w.terminate(); URL.revokeObjectURL(url); resolve(r); };
+    const t = setTimeout(() => done({ stdout: '', stderr: 'Stopped: the code ran for more than 8 seconds.' }), 8000);
+    w.onmessage = (e) => done(e.data);
+    w.onerror = (e) => done({ stdout: '', stderr: (e.message || 'Script error') + (e.lineno ? '\n    at line ' + (e.lineno - OFFSET) : '') });
+    w.postMessage(1);
+  });
+}
+
+async function runRemote(lang, code, stdin) {
+  const payload = JSON.stringify({ language: lang, code, stdin });
+  if (API_BASE) {
+    const r = await fetch(API_BASE + '/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('The Knight backend answered ' + r.status + '.'));
+    return j;
+  }
+  throw new Error('Languages other than JavaScript need the Knight backend. Start it (see the README) and reload.');
+}
+
 async function runCodeUI() {
-  const lang = $('termLanguage').value;
+  let lang = $('termLanguage').value; lang = LANG_ALIASES[lang] || lang;
   const code = $('termCodeInput').value;
-  const out = $('termOutput');
-  const btn = $('runCodeBtn');
-
-  out.textContent = 'Running…';
+  const stdin = ($('termStdin') && $('termStdin').value) || '';
+  const out = $('termOutput'), btn = $('runCodeBtn'), meta = $('termRunMeta');
+  out.textContent = 'Running…'; out.style.color = '';
+  const preIssues = checkTermCodeUI(true);
+  if ($('termJump')) $('termJump').innerHTML = '';
+  if (meta) meta.textContent = '';
   btn.disabled = true;
-
+  const t0 = performance.now();
   let status = 'ok', text = '';
   try {
-    const res = await fetch('https://emkc.org/api/v2/piston/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        language: lang,
-        version: PISTON_VERSIONS[lang] || '*',
-        files: [{ name: lang === 'java' ? 'Main.java' : 'main', content: code }],
-      }),
-    });
-    const data = await res.json();
-    const r = data.run || {};
-    text = ((r.stdout || '') + (r.stderr || '')).trim() || '(no output)';
+    const r = lang === 'javascript' ? await runJsLocally(code, stdin) : await runRemote(lang, code, stdin);
+    const compile = (r.compile || '').trim(), so = (r.stdout || ''), se = (r.stderr || '');
+    text = [compile, so, se].filter(Boolean).join(compile && !so && !se ? '' : '\n').trim() || '(no output)';
     out.textContent = text;
-    if (r.stderr) {
-      status = 'error';
-      if ($('termAudioToggle').checked && DB.prefs().errorSound !== false) beep();
-    }
+    if (compile || se || (r.status && !/accepted/i.test(r.status))) status = 'error';
+    if (status === 'error') { out.style.color = 'var(--accent-coral)'; showJumpToErrorLine(text, r.lineOffset); }
+    if (meta) meta.textContent = (r.status ? r.status + ' · ' : '') + Math.round(performance.now() - t0) + ' ms' + (r.memory ? ' · ' + Math.round(r.memory / 1024) + ' MB' : '');
+    if (status === 'error' && $('termAudioToggle').checked && DB.prefs().errorSound !== false) beep();
   } catch (e) {
-    status = 'error';
-    text = 'Could not reach the execution service.\n' + e.message
-      + '\n\nThis needs internet access — it runs your code on a real remote runtime.';
+    status = 'error'; out.style.color = 'var(--accent-coral)';
+    text = (e && e.message) || 'The run failed.';
     out.textContent = text;
     if ($('termAudioToggle').checked) beep();
   } finally {
@@ -3128,6 +3322,7 @@ function openTerminalWorkspace(projectId) {
 
   $('termNoProjectHint').style.display = 'none';
   $('termWorkspace').style.display = 'block';
+  $$('.term-ws-tab').forEach(t => { t.style.display = ''; });
 
   renderTermWebsiteList();
   renderTermFileList(p);
@@ -3178,12 +3373,14 @@ function renderTermCommitsList(p) {
     : `<p style="font-size:.82rem;color:var(--text-tertiary);">No commits yet — cut a version from the project's Versions tab.</p>`;
 }
 
-function loadTermFile(name) {
+function loadTermFile(name, line) {
   const p = DB.data().projects[terminalProjectId];
   if (!p || p.files[name] === undefined) return;
   $('termCodeInput').value = p.files[name];
   if (LANG_BY_EXT[extOf(name)]) $('termLanguage').value = LANG_BY_EXT[extOf(name)];
   setTermWorkspaceTab('run');
+  checkTermCodeUI(true);
+  if (line) setTimeout(() => termGotoLine(line), 60);
   toast(name + ' loaded.');
 }
 
@@ -3309,16 +3506,10 @@ function openVersionDiffUI(versionId, compareToId) {
 function scanSnapshotForIssues(snapshot) {
   const issues = [];
   Object.entries(snapshot || {}).forEach(([name, content]) => {
-    const ext = extOf(name);
-    if (['js', 'mjs', 'jsx'].includes(ext)) {
-      try { new Function(content); }
-      catch (e) { issues.push({ file: name, message: 'JS syntax error: ' + e.message }); }
-    } else if (['html', 'htm'].includes(ext)) {
-      const opens = (content.match(/<([a-z][a-z0-9]*)\b[^>]*(?<!\/)>/gi) || [])
-        .filter(t => !/^<(br|img|input|hr|meta|link|source|col|area|base|embed|track|wbr)\b/i.test(t)).length;
-      const closes = (content.match(/<\/[a-z][a-z0-9]*>/gi) || []).length;
-      if (Math.abs(opens - closes) > 0) issues.push({ file: name, message: 'Possibly unbalanced HTML tags (' + opens + ' opened vs ' + closes + ' closed)' });
-    }
+    const kind = lintKindForFile(name); if (!kind) return;
+    lintSource(kind, content, { ts: ['ts', 'tsx'].includes(extOf(name)) })
+      .filter(i => i.severity === 'error').slice(0, 5)
+      .forEach(i => issues.push({ file: name, line: i.line, message: 'Line ' + i.line + ': ' + i.message }));
   });
   return issues;
 }
@@ -3385,10 +3576,10 @@ function runTermDebugScan() {
   box.innerHTML = issues.length
     ? issues.map(i => `<div class="version-scan-row" style="border-bottom:1px solid var(--panel-border); padding-bottom:8px; margin-bottom:8px;">
         <span class="has-issues">${esc(i.file)}</span>
-        <button class="nav-cta" style="font-size:.7rem;padding:4px 10px;" onclick="loadTermFile('${esc(i.file)}')">Open</button>
+        <button class="nav-cta" style="font-size:.7rem;padding:4px 10px;" onclick="loadTermFile('${esc(i.file)}', ${i.line || 0})">Open at line ${i.line || ''}</button>
       </div>
       <div class="version-scan-issue" style="margin-bottom:6px;">${esc(i.message)}</div>`).join('')
-    : `<div class="version-scan-summary is-clean">No detectable issues in the current files.</div>`;
+    : `<div class="version-scan-summary is-clean">No errors found in the current files.</div>`;
 }
 
 /* ----- Network tab: real timing/status check against the deployed site ---- */
@@ -3781,7 +3972,7 @@ const CMDS = [
   { label: 'Studio',           hint: 'discover', run: () => openKnightPage('studioPage') },
   { label: 'Communication',    hint: 'chat',     run: () => openKnightPage('commPage') },
   { label: 'Social & Friends', hint: 'friends',  run: () => openKnightPage('socialPage') },
-  { label: 'Data-Base',        hint: 'notes',    run: () => openKnightPage('notesPage') },
+  { label: 'Notes',            hint: 'notes',    run: () => openKnightPage('notesPage') },
   { label: 'Arcade',           hint: 'game',     run: () => openKnightPage('arcadePage') },
   { label: 'Game Booster',     hint: 'perf',     run: () => openKnightPage('gameBoosterPage') },
   { label: 'Settings',         hint: 'prefs',    run: () => openKnightPage('settingsPage') },
@@ -4505,7 +4696,7 @@ function openPreviewInTab() {
 
 const LANG_BY_EXT = {
   js: 'javascript', mjs: 'javascript', py: 'python', java: 'java', c: 'c',
-  cpp: 'c++', ts: 'typescript', go: 'go', rs: 'rust', php: 'php', rb: 'ruby', sh: 'bash',
+  cpp: 'cpp', cc: 'cpp', cs: 'csharp', kt: 'kotlin', swift: 'swift', dart: 'dart', lua: 'lua', pl: 'perl', r: 'r', scala: 'scala', hs: 'haskell', sql: 'sql', ts: 'typescript', go: 'go', rs: 'rust', php: 'php', rb: 'ruby', sh: 'bash',
 };
 
 function sendProjectToTerminalUI() {
@@ -5191,7 +5382,7 @@ function puterExtractText(resp) {
 }
 
 /** One question to the model. Returns { content, finishReason, model } or throws a readable Error. */
-async function callAI(messages) {
+async function callAI(messages, onProgress) {
   const mode = aiMode();
   if (mode === 'none') throw new Error('AI is not set up yet. Add an OpenRouter key, or turn on Puter, in Settings & Guides.');
 
@@ -5207,30 +5398,45 @@ async function callAI(messages) {
     }
     const opts = {};
     if (puterModelName()) opts.model = puterModelName();
-    let resp;
+    // Stream the answer: first words show up in a second or two, and the only timeout is
+    // "no data for 90 seconds", so long coding answers are never cut off by a fixed limit.
+    let content = '';
     try {
-      resp = await Promise.race([
-        puter.ai.chat(messages, opts),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Puter took too long to answer (30s). Try again.')), 30000)),
-      ]);
+      const stream = await puter.ai.chat(messages, Object.assign({ stream: true }, opts));
+      if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+        const it = stream[Symbol.asyncIterator]();
+        for (;;) {
+          let idle;
+          const step = await Promise.race([
+            it.next(),
+            new Promise((_, rej) => { idle = setTimeout(() => rej(new Error('Puter stopped responding (no data for 90 seconds). Try again.')), 90000); }),
+          ]).finally(() => clearTimeout(idle));
+          if (step.done) break;
+          const part = step.value;
+          content += (part && typeof part.text === 'string') ? part.text : (typeof part === 'string' ? part : '');
+          if (onProgress) onProgress(content.length);
+        }
+      } else {
+        content = puterExtractText(stream);
+      }
     } catch (e) {
       throw new Error('Puter error: ' + ((e && e.message) || 'the request failed.'));
     }
-    const content = puterExtractText(resp);
     if (!content) throw new Error('Puter returned no answer.');
     return { content, finishReason: '', model: puterModelName() || 'puter-default' };
   }
 
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 120000) : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 300000) : null;
   let res;
   try {
     if (mode === 'personal') {
       res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST', signal: ctrl ? ctrl.signal : undefined,
         headers: { 'Authorization': 'Bearer ' + aiPersonalKey(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: aiModelName(), messages, max_tokens: 8000 }),
+        body: JSON.stringify({ model: aiModelName(), messages, max_tokens: 16000, stream: true }),
       });
+      if (res.ok && res.body && res.body.getReader) return await readOpenRouterStream(res, onProgress);
     } else {
       const token = DB.backendToken(me().email);
       if (!token) throw new Error('Sign out and back in while the backend is reachable, then try again.');
@@ -5433,7 +5639,7 @@ async function runAiGenerate(ctx) {
     const reply = await callAI([
       { role: 'system', content: AI_SYSTEM_PROMPT },
       { role: 'user', content: buildAiUserMessage(project, prompt, includeContext) },
-    ]);
+    ], (n) => { if (btn) btn.textContent = 'Knight_Ai writing… ' + n.toLocaleString() + ' chars'; });
     const parsed = parseAiFiles(reply.content);
     const proposal = prepareAiProposal(parsed, existing);
     proposal.finishReason = reply.finishReason;
@@ -5584,7 +5790,7 @@ async function testPuterUI() {
     const opts = {}; if (puterModelName()) opts.model = puterModelName();
     const resp = await Promise.race([
       puter.ai.chat([{ role: 'user', content: 'Reply with the single word: ready' }], opts),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out after 30s.')), 30000)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out after 90s.')), 90000)),
     ]);
     const text = puterExtractText(resp);
     if (status) { status.textContent = '✅ Works. Puter said: ' + text.slice(0, 60); status.style.color = 'var(--accent-green)'; }
@@ -5896,7 +6102,7 @@ const KNIGHT_NAV = {
   studio:        { label: 'Studio',           re: /\b(?:studio|discover|explore)\b/,                     run: () => openKnightPage('studioPage') },
   communication: { label: 'Communication',    re: /\b(?:communication|chat|messages?|inbox)\b/,          run: () => openKnightPage('commPage') },
   social:        { label: 'Social & Friends', re: /\b(?:social|friends?)\b/,                             run: () => openKnightPage('socialPage') },
-  notes:         { label: 'the Data-Base',    re: /\b(?:notes?|data ?base|snippets?)\b/,                 run: () => openKnightPage('notesPage') },
+  notes:         { label: 'Notes',             re: /\b(?:notes?|data ?base|snippets?)\b/,                 run: () => openKnightPage('notesPage') },
   arcade:        { label: 'the Arcade',       re: /\b(?:arcade|games?)\b/,                               run: () => openKnightPage('arcadePage') },
   settings:      { label: 'Settings',         re: /\b(?:settings?|preferences)\b/,                       run: () => openKnightPage('settingsPage') },
   profile:       { label: 'your profile',     re: /\b(?:profile|account)\b/,                             run: () => openModal('profileModal') },
@@ -6437,9 +6643,11 @@ function openInfoPage(id) {
   const a = $('auth'); if (a) a.style.display = 'none';
   $('dashboard').style.display = 'none';
   $(id).classList.add('active');
+  document.body.classList.add('info-open');
   window.scrollTo(0, 0);
 }
 function closeInfoPage() {
+  document.body.classList.remove('info-open');
   $$('.knight-page').forEach(p => p.classList.remove('active'));
   const a = $('auth'); if (a) a.style.display = '';
   if (me()) goHome();
@@ -6452,12 +6660,524 @@ async function aboutAiAsk() {
     st.textContent = 'Connecting to Puter…';
     await puterSignIn();                      // direct from the click, so the popup is allowed
     st.textContent = 'Thinking…'; out.textContent = '';
-    const r = await puter.ai.chat([{ role: 'user', content: q }]);   // goes through puter-guard
-    const t = typeof r === 'string' ? r : (r && r.message && (typeof r.message.content === 'string' ? r.message.content : (r.message.content || []).map(x => x.text || '').join(''))) || '';
-    out.textContent = t || 'No answer came back.';
+    const r = await puter.ai.chat([{ role: 'user', content: q }], { stream: true });   // goes through puter-guard
+    if (r && typeof r[Symbol.asyncIterator] === 'function') {
+      for await (const part of r) { out.textContent += (part && part.text) || ''; }   // words appear as they arrive
+      if (!out.textContent) out.textContent = 'No answer came back.';
+    } else {
+      out.textContent = puterExtractText(r) || 'No answer came back.';
+    }
     st.textContent = '';
   } catch (e) {
     st.textContent = '';
     toast((e && e.message) || 'Knight AI could not answer. Allow the Puter sign-in popup and try again.', true);
   }
+}
+
+
+/** Reads OpenRouter's server-sent-event stream and returns the same shape callAI always returns. */
+async function readOpenRouterStream(res, onProgress) {
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = '', content = '', finish = '', model = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') continue;
+      try {
+        const j = JSON.parse(data);
+        model = j.model || model;
+        const c = j.choices && j.choices[0];
+        if (c) { if (c.delta && c.delta.content) content += c.delta.content; if (c.finish_reason) finish = c.finish_reason; }
+        if (onProgress) onProgress(content.length);
+      } catch {}
+    }
+  }
+  if (!content) throw new Error('The AI returned no answer.');
+  return { content, finishReason: finish, model };
+}
+
+
+/* ---- Live clock beside the Knight name ---- */
+function tickKnightClock() {
+  const now = new Date();
+  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const date = now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+  document.querySelectorAll('.knight-clock').forEach(el => { el.innerHTML = time + '<small>' + date + '</small>'; });
+}
+tickKnightClock();
+setInterval(tickKnightClock, 1000);
+
+/* ===========================================================================
+   ERROR FINDER — finds the exact line of the problem before (and after) you run.
+   Works on whatever is in the terminal editor, and on every file of a project.
+   Static checks: unbalanced brackets, unterminated strings and comments, JSON/JS syntax
+   (with the real line number), Python indentation and missing colons, HTML tag structure.
+   It cannot find logic bugs; for those, run the code and read the compiler's output.
+=========================================================================== */
+
+const LINT_CFG = {
+  js:   { slash: true, block: true, sq: true, dq: true, bt: true, tpl: true, regex: true },
+  c:    { slash: true, block: true, sq: true, dq: true },
+  go:   { slash: true, block: true, sq: true, dq: true, bt: true, multiRaw: true },
+  rust: { slash: true, block: true, dq: true },
+  php:  { slash: true, hash: true, block: true, sq: true, dq: true, multi: true },
+  py:   { hash: true, hashAny: true, sq: true, dq: true, triple: true },
+  hash: { hash: true, sq: true, dq: true, multi: true },
+  css:  { block: true, sq: true, dq: true },
+  json: {},
+};
+const LINT_BY_EXT = { js: 'js', mjs: 'js', jsx: 'js', ts: 'js', tsx: 'js', json: 'json', html: 'html', htm: 'html', css: 'css',
+  py: 'py', java: 'c', c: 'c', h: 'c', cpp: 'c', cc: 'c', cs: 'c', kt: 'c', swift: 'c', dart: 'c', scala: 'c', go: 'go', rs: 'rust',
+  php: 'php', rb: 'hash', sh: 'hash', pl: 'hash', r: 'hash', lua: 'hash', ex: 'hash', exs: 'hash' };
+const LINT_BY_TERM_LANG = { javascript: 'js', typescript: 'js', python: 'py', java: 'c', c: 'c', cpp: 'c', csharp: 'c', kotlin: 'c',
+  swift: 'c', dart: 'c', scala: 'c', go: 'go', rust: 'rust', php: 'php', ruby: 'hash', perl: 'hash', lua: 'hash', r: 'hash',
+  bash: 'hash', elixir: 'hash', groovy: 'c' };
+
+/** Walks the source once, skipping comments/strings/regexes, and reports bracket + string problems. */
+function scanBrackets(src, cfg) {
+  const issues = [], stack = [], pairs = { ')': '(', ']': '[', '}': '{' };
+  const lineDepth = { 1: 0 }, lineInStr = { 1: false };
+  const n = src.length;
+  let i = 0, line = 1, col = 1, multi = false, lastSig = '', lastWord = '', fatal = false, strErr = false;
+  const adv = (k = 1) => {
+    for (let j = 0; j < k && i < n; j++) {
+      if (src[i] === '\n') { line++; col = 1; lineDepth[line] = stack.length; lineInStr[line] = multi; } else col++;
+      i++;
+    }
+  };
+  const err = (l, c, message, severity) => issues.push({ line: l, col: c, severity: severity || 'error', message });
+  const REGEX_AFTER = /^(return|typeof|instanceof|in|of|case|delete|void|throw|new|else|do|yield|await)$/;
+
+  const scanTemplate = (sl, sc) => {      // inside a `...` literal; stops at the closing backtick or at ${
+    multi = true;
+    while (i < n) {
+      const c = src[i];
+      if (c === '\\') { adv(2); continue; }
+      if (c === '`') { adv(); multi = false; lastSig = '`'; return; }
+      if (cfg.tpl && c === '$' && src[i + 1] === '{') { stack.push({ t: 'tpl', line: sl, col: sc }); adv(2); multi = false; lastSig = '{'; return; }
+      adv();
+    }
+    multi = false; err(sl, sc, 'Unterminated template string (a ` was never closed).');
+  };
+
+  while (i < n && !fatal) {
+    const ch = src[i], two = src.substr(i, 2);
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { adv(); continue; }
+
+    if (cfg.slash && two === '//') { while (i < n && src[i] !== '\n') adv(); continue; }
+    if (cfg.hash && ch === '#' && (cfg.hashAny || i === 0 || /\s/.test(src[i - 1]))) { while (i < n && src[i] !== '\n') adv(); continue; }
+    if (cfg.block && two === '/*') {
+      const sl = line, sc = col, end = src.indexOf('*/', i + 2);
+      if (end < 0) { err(sl, sc, 'Comment opened with /* is never closed.'); break; }
+      adv(end + 2 - i); continue;
+    }
+    if (cfg.triple && (src.substr(i, 3) === '"""' || src.substr(i, 3) === "'''")) {
+      const q = src.substr(i, 3), sl = line, sc = col; adv(3); multi = true;
+      let closed = false;
+      while (i < n) { if (src[i] === '\\') { adv(2); continue; } if (src.substr(i, 3) === q) { adv(3); closed = true; break; } adv(); }
+      multi = false;
+      if (!closed) err(sl, sc, 'Triple-quoted string is never closed.');
+      lastSig = '"'; continue;
+    }
+    if ((ch === '"' && cfg.dq) || (ch === "'" && cfg.sq)) {
+      const q = ch, sl = line, sc = col; adv(); let closed = false;
+      while (i < n) {
+        const c = src[i];
+        if (c === '\\') { adv(2); continue; }
+        if (c === q) { adv(); closed = true; break; }
+        if (c === '\n' && !cfg.multi) break;
+        adv();
+      }
+      if (!closed) { err(sl, sc, 'Unterminated string: the ' + q + ' opened here is never closed on that line.'); strErr = true; }
+      lastSig = '"'; continue;
+    }
+    if (ch === '`' && cfg.bt) { const sl = line, sc = col; adv(); scanTemplate(sl, sc); continue; }
+    if (cfg.regex && ch === '/' && (lastSig === '' || /[(,=:\[!&|?{};+\-*%<>~^]/.test(lastSig) || (lastSig === 'a' && REGEX_AFTER.test(lastWord)))) {
+      const si = i, sl = line, sc = col; let inClass = false, ok = false; adv();
+      while (i < n && src[i] !== '\n') {
+        const c = src[i];
+        if (c === '\\') { adv(2); continue; }
+        if (c === '[') inClass = true; else if (c === ']') inClass = false;
+        else if (c === '/' && !inClass) { adv(); ok = true; break; }
+        adv();
+      }
+      if (ok) { lastSig = '/re'; continue; }
+      i = si; line = sl; col = sc; adv(); lastSig = '/'; continue;          // it was a division sign
+    }
+    if (ch === '(' || ch === '[' || ch === '{') { stack.push({ ch, line, col }); lastSig = ch; adv(); continue; }
+    if (ch === ')' || ch === ']' || ch === '}') {
+      const top = stack[stack.length - 1];
+      if (ch === '}' && top && top.t === 'tpl') { stack.pop(); adv(); scanTemplate(top.line, top.col); continue; }
+      if (strErr) { fatal = true; break; }
+      if (!top) { err(line, col, "Unexpected '" + ch + "' with nothing open to close."); fatal = true; break; }
+      if (top.ch !== pairs[ch]) {
+        err(line, col, "Found '" + ch + "' but the '" + top.ch + "' opened on line " + top.line + ' is still open.');
+        fatal = true; break;
+      }
+      stack.pop(); lastSig = ch; adv(); continue;
+    }
+    if (/[A-Za-z_$]/.test(ch)) { let w = ''; while (i < n && /[\w$]/.test(src[i])) { w += src[i]; adv(); } lastWord = w; lastSig = 'a'; continue; }
+    if (/[0-9]/.test(ch)) { while (i < n && /[\w.]/.test(src[i])) adv(); lastSig = '0'; continue; }
+    lastSig = ch; adv();
+  }
+  if (!fatal && !strErr) stack.filter(s => !s.t).slice(-3).forEach(s => err(s.line, s.col, "'" + s.ch + "' opened here is never closed."));
+  return { issues, lineDepth, lineInStr };
+}
+
+function lintJsEngine(src, lineOffset) {
+  // Module syntax is not allowed inside Function(), so blank it out while keeping line numbers intact.
+  const blank = (m) => m.replace(/[^\n]/g, ' ');
+  const code = src.replace(/^\s*import\s[\s\S]*?from\s*['"][^'"]+['"];?/gm, blank)
+                  .replace(/^\s*import\s*['"][^'"]+['"];?/gm, blank)
+                  .replace(/^(\s*)export\s+default\s+/gm, '$1').replace(/^(\s*)export\s+(?=[\w{*])/gm, '$1');
+  const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
+  const test = (text) => { try { new AsyncFn(text); return null; } catch (e) { return e && e.message ? String(e.message) : 'Syntax error'; } };
+  const msg = test(code);
+  if (!msg) return [];
+  const lines = code.split('\n');
+  let lineNo = lines.length;
+  if (lines.length <= 4000 && !/end of input/i.test(msg)) {
+    let lo = 1, hi = lines.length;                               // smallest prefix that already shows this same error
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (test(lines.slice(0, mid).join('\n')) === msg) hi = mid; else lo = mid + 1; }
+    lineNo = lo;
+  }
+  return [{ line: lineNo + (lineOffset || 0), col: 1, severity: 'error', message: 'JavaScript syntax error: ' + msg }];
+}
+
+function lintJson(src) {
+  if (!src.trim()) return [];
+  try { JSON.parse(src); return []; } catch (e) {
+    const m = String(e.message);
+    let line = 1, col = 1, lc = /line (\d+) column (\d+)/.exec(m), pos = /position (\d+)/.exec(m);
+    if (lc) { line = +lc[1]; col = +lc[2]; }
+    else if (pos) { const before = src.slice(0, +pos[1]); line = before.split('\n').length; col = +pos[1] - before.lastIndexOf('\n'); }
+    if (!lc && !pos) {                                   // newer engines give no position: find the first line that shows the same error
+      const head = m.split(/, "/)[0], lines = src.split('\n');
+      if (/end of JSON input/i.test(m)) line = lines.length;
+      else for (let k = 1; k <= Math.min(lines.length, 4000); k++) {
+        try { JSON.parse(lines.slice(0, k).join('\n')); } catch (e2) { if (String(e2.message).split(/, "/)[0] === head) { line = k; break; } }
+      }
+    }
+    return [{ line, col, severity: 'error', message: 'Invalid JSON: ' + m.split(/, "/)[0].replace(/\s*\(line.*$/, '').replace(/ in JSON at position.*/, '') }];
+  }
+}
+
+function lintPython(src) {
+  const { issues, lineDepth, lineInStr } = scanBrackets(src, LINT_CFG.py);
+  const out = issues.slice();
+  const lines = src.split('\n'), indents = [0];
+  let prevOpen = false, prevIndent = 0, prevCode = '';
+  lines.forEach((raw, idx) => {
+    const ln = idx + 1;
+    if (lineInStr[ln] || (lineDepth[ln] || 0) > 0) return;           // inside a string or a continued bracket
+    const stripped = raw.replace(/\s+#.*$/, '').replace(/^\s*#.*$/, '');
+    if (!stripped.trim()) return;
+    const lead = /^[ \t]*/.exec(raw)[0];
+    if (/ \t|\t /.test(lead)) out.push({ line: ln, col: 1, severity: 'error', message: 'Tabs and spaces are mixed in this line’s indentation.' });
+    const ind = lead.replace(/\t/g, '    ').length;
+    if (ind > prevIndent && prevCode && !prevOpen) out.push({ line: ln, col: 1, severity: 'error', message: 'Unexpected indent (the line above does not end with a colon).' });
+    if (ind < indents[indents.length - 1]) {
+      while (indents.length > 1 && ind < indents[indents.length - 1]) indents.pop();
+      if (ind !== indents[indents.length - 1]) out.push({ line: ln, col: 1, severity: 'error', message: 'Unindent does not match any outer indentation level.' });
+    } else if (ind > indents[indents.length - 1]) indents.push(ind);
+    const t = stripped.trim();
+    if (/^(if|elif|else|for|while|def|class|try|except|finally|with|async\s+def|async\s+for|async\s+with)\b/.test(t) && !/:\s*(\S.*)?$/.test(t) && !/\\$/.test(t))
+      out.push({ line: ln, col: raw.length + 1, severity: 'error', message: "Missing ':' at the end of this line." });
+    if (/^print\s+[^\s=(]/.test(t)) out.push({ line: ln, col: 1, severity: 'error', message: 'print needs parentheses in Python 3: print(...).' });
+    prevOpen = /:$/.test(t) || /^(if|elif|else|for|while|def|class|try|except|finally|with)\b/.test(t); prevIndent = ind; prevCode = t;
+  });
+  return out;
+}
+
+function lintHtml(src) {
+  const out = [], stack = [];
+  const starts = [0]; for (let k = 0; k < src.length; k++) if (src[k] === '\n') starts.push(k + 1);
+  const lineAt = (pos) => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (starts[m] <= pos) lo = m; else hi = m - 1; } return lo + 1; };
+  const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr', 'param']);
+  const OPTIONAL_END = new Set(['p', 'li', 'td', 'th', 'tr', 'dt', 'dd', 'option', 'thead', 'tbody', 'tfoot', 'html', 'body', 'head', 'colgroup']);
+  const CLOSES_P = new Set(['div', 'p', 'ul', 'ol', 'table', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'form', 'section', 'article', 'header', 'footer', 'nav', 'pre', 'blockquote', 'hr', 'dl', 'fieldset', 'main', 'aside']);
+  const ids = new Map();
+  const re = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+  let m;
+  if (/<html/i.test(src) && !/<!doctype/i.test(src)) out.push({ line: 1, col: 1, severity: 'warning', message: 'Missing <!DOCTYPE html> at the top.' });
+  while ((m = re.exec(src))) {
+    if (!m[2]) continue;
+    const closing = !!m[1], tag = m[2].toLowerCase(), attrs = m[3] || '', line = lineAt(m.index);
+    if (closing) {
+      const at = stack.map(s => s.tag).lastIndexOf(tag);
+      if (at < 0) { out.push({ line, col: 1, severity: 'error', message: 'Stray </' + tag + '> with no matching <' + tag + '>.' }); continue; }
+      while (stack.length - 1 > at) {
+        const lost = stack.pop();
+        if (!OPTIONAL_END.has(lost.tag)) out.push({ line: lost.line, col: 1, severity: 'error', message: '<' + lost.tag + '> opened here is never closed before </' + tag + '> on line ' + line + '.' });
+      }
+      stack.pop(); continue;
+    }
+    if (tag === 'script' || tag === 'style') {
+      if (!/\/\s*$/.test(attrs)) {
+        const endRe = new RegExp('</' + tag + '\\s*>', 'i'); endRe.lastIndex = 0;
+        const rest = src.slice(re.lastIndex), em = endRe.exec(rest);
+        if (!em) { out.push({ line, col: 1, severity: 'error', message: '<' + tag + '> is never closed with </' + tag + '>.' }); break; }
+        const body = rest.slice(0, em.index), bodyLine = lineAt(re.lastIndex);
+        const isJs = tag === 'script' && !/\bsrc\s*=/i.test(attrs) && !/type\s*=\s*["']?(application\/(ld\+)?json|text\/template|importmap)/i.test(attrs);
+        if (body.trim() && isJs) {
+          const sb = scanBrackets(body, LINT_CFG.js).issues; const js = sb.length ? sb : lintJsEngine(body, 0);
+          js.forEach(i => out.push({ ...i, line: i.line + bodyLine - 1, message: 'In <script>: ' + i.message }));
+        } else if (body.trim() && tag === 'style') {
+          scanBrackets(body, LINT_CFG.css).issues.forEach(i => out.push({ ...i, line: i.line + bodyLine - 1, message: 'In <style>: ' + i.message }));
+        }
+        re.lastIndex += em.index + em[0].length;
+      }
+      continue;
+    }
+    const idm = /\bid\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
+    if (idm) { const id = idm[1] || idm[2]; if (ids.has(id)) out.push({ line, col: 1, severity: 'warning', message: 'Duplicate id "' + id + '" (first used on line ' + ids.get(id) + ').' }); else ids.set(id, line); }
+    if (tag === 'img' && !/\balt\s*=/i.test(attrs)) out.push({ line, col: 1, severity: 'warning', message: '<img> has no alt text.' });
+    if (VOID.has(tag) || /\/\s*$/.test(attrs)) continue;
+    const top = stack[stack.length - 1];
+    if (top && ((tag === 'li' && top.tag === 'li') || (['td', 'th'].includes(tag) && ['td', 'th'].includes(top.tag)) || (tag === 'tr' && top.tag === 'tr') ||
+        (tag === 'option' && top.tag === 'option') || (['dt', 'dd'].includes(tag) && ['dt', 'dd'].includes(top.tag)) || (CLOSES_P.has(tag) && top.tag === 'p'))) stack.pop();
+    stack.push({ tag, line });
+  }
+  stack.forEach(s => out.push({ line: s.line, col: 1, severity: OPTIONAL_END.has(s.tag) ? 'warning' : 'error', message: '<' + s.tag + '> opened here is never closed.' }));
+  return out;
+}
+
+/** kind: a LINT_CFG key / 'html' / 'json' / 'py'. Returns [{ line, col, severity, message }] sorted by line. */
+function lintSource(kind, src, opts) {
+  src = String(src == null ? '' : src);
+  let res = [];
+  try {
+    if (kind === 'json') res = lintJson(src);
+    else if (kind === 'html') res = lintHtml(src);
+    else if (kind === 'py') res = lintPython(src);
+    else if (LINT_CFG[kind]) {
+      res = scanBrackets(src, LINT_CFG[kind]).issues;
+      if (kind === 'js' && !res.length && !(opts && opts.ts)) res = lintJsEngine(src, 0);
+    }
+  } catch (e) { res = [{ line: 1, col: 1, severity: 'warning', message: 'The error finder could not read this file: ' + e.message }]; }
+  return res.sort((a, b) => a.line - b.line || a.col - b.col);
+}
+function lintKindForFile(name) { return LINT_BY_EXT[extOf(name)] || null; }
+
+/* ---- UI: terminal editor ---- */
+function termGotoLine(n) {
+  const ta = $('termCodeInput'); if (!ta) return;
+  const lines = ta.value.split('\n'); n = Math.max(1, Math.min(n, lines.length));
+  const start = lines.slice(0, n - 1).reduce((a, l) => a + l.length + 1, 0);
+  setTermWorkspaceTab('run');
+  ta.focus(); ta.setSelectionRange(start, start + lines[n - 1].length);
+  const lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+  ta.scrollTop = Math.max(0, (n - 1) * lh - ta.clientHeight / 2);
+}
+function renderLintList(box, issues, emptyText) {
+  if (!box) return;
+  if (!issues.length) { box.innerHTML = `<div class="version-scan-summary is-clean">${esc(emptyText || 'No problems found.')}</div>`; return; }
+  box.innerHTML = issues.slice(0, 60).map(i => `<div class="lint-row ${i.severity}" onclick="termGotoLine(${i.line})">
+      <span class="lint-badge">${i.severity === 'error' ? 'Error' : 'Warning'}</span>
+      <span class="lint-line">Line ${i.line}</span><span class="lint-msg">${esc(i.message)}</span></div>`).join('')
+    + (issues.length > 60 ? `<p style="font-size:.74rem;color:var(--text-tertiary);">…and ${issues.length - 60} more.</p>` : '');
+}
+function checkTermCodeUI(quiet) {
+  const lang = LANG_ALIASES[$('termLanguage').value] || $('termLanguage').value;
+  const kind = LINT_BY_TERM_LANG[lang];
+  const box = $('termLintResult');
+  if (!kind) { if (!quiet) renderLintList(box, [], 'No static checker for this language. Press Run and the compiler will report errors with line numbers.'); return []; }
+  const issues = lintSource(kind, $('termCodeInput').value, { ts: lang === 'typescript' });
+  const errs = issues.filter(i => i.severity === 'error').length;
+  renderLintList(box, issues, 'No problems found. Looks good!');
+  const b = $('termLintBadge'); if (b) b.textContent = errs ? ' ' + errs : '';
+  return issues;
+}
+function showJumpToErrorLine(text, offset) {
+  const box = $('termJump'); if (!box) return;
+  const m = /\bline (\d+)/i.exec(text) || /:(\d+):\d+/.exec(text) || /\((\d+),\d+\)/.exec(text);
+  const n = m ? (+m[1] - (offset || 0)) : 0;
+  box.innerHTML = n > 0 ? `<button class="nav-cta" onclick="termGotoLine(${n})">Jump to line ${n}</button>` : '';
+}
+
+
+/* ===========================================================================
+   REPO BAR: public/private, watch, pin, star, fork, branches, tags
+=========================================================================== */
+const VIS_LABEL = { public: 'Public', friends: 'Friends', selected: 'Selected friends', private: 'Private' };
+const REPO_ICONS = {
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  star: '<polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6"/>',
+  fork: '<circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M6 7v2a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7M12 12v5"/>',
+  pin: '<path d="M12 17v5M8 3h8l-1 7 3 3H6l3-3z"/>',
+  branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10a6 6 0 0 1-6 6H8"/>',
+  tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.2"/>',
+};
+function repoIcon(name) { return `<svg class="repo-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${REPO_ICONS[name] || ''}</svg>`; }
+function isProjectPinned(pid) { return (DB.prefs().pinnedProjects || []).includes(pid) ? 1 : 0; }
+function projectForkCount(p) { return Object.values(DB.data().projects).filter(x => x.forkedFrom && x.forkedFrom.projectId === p.id).length; }
+function repoBranchOf(p) { if (!p.branches || !p.branches.length) p.branches = ['main']; p.currentBranch = p.currentBranch || 'main'; p.branchFiles = p.branchFiles || {}; return p; }
+
+function refreshRepoViews(pid) {
+  const p = DB.data().projects[pid]; if (!p) return;
+  if (currentProjectId === pid && $('projectDetailPage').classList.contains('active')) { renderRepoBar(p, myRoleOn(p) || 'visitor'); if (typeof renderProjectStats === 'function') renderProjectStats(p); }
+  if ($('myProjectsGrid')) renderProjectsList();
+}
+function toggleProjectPin(pid) {
+  if (!requireAuth()) return;
+  const pr = DB.prefs(), a = pr.pinnedProjects || [], i = a.indexOf(pid);
+  if (i < 0) a.push(pid); else a.splice(i, 1);
+  pr.pinnedProjects = a; DB.savePrefs(pr);
+  toast(i < 0 ? 'Pinned to the top of your projects.' : 'Unpinned.');
+  refreshRepoViews(pid);
+}
+function toggleWatch(pid) {
+  if (!requireAuth()) return;
+  const d = DB.data(), p = d.projects[pid]; if (!p) return;
+  p.watchedBy = p.watchedBy || [];
+  const i = p.watchedBy.indexOf(myId());
+  if (i < 0) { p.watchedBy.push(myId()); toast('Watching ' + p.name + '. You will be notified about new versions, tags and merges.'); }
+  else { p.watchedBy.splice(i, 1); toast('Stopped watching ' + p.name + '.'); }
+  DB.saveData(d); refreshRepoViews(pid);
+}
+function repoToggleStar(pid, ev) { if (!requireAuth()) return; toggleStar(pid, ev); refreshRepoViews(pid); }
+function notifyWatchers(p, title, text) {
+  (p.watchedBy || []).filter(id => id !== myId()).forEach(id => pushNotification(id, title, text, '#/project/' + p.id));
+}
+function setProjectVisibility(pid, v) {
+  const d = DB.data(), p = d.projects[pid];
+  if (!p || p.ownerId !== myId()) { toast('Only the owner can change who can see this.', true); return; }
+  p.visibility = v; p.updatedAt = Date.now(); DB.saveData(d);
+  toast(v === 'public' ? 'This repository is now public.' : v === 'private' ? 'This repository is now private.' : 'Visibility set to ' + VIS_LABEL[v] + '.');
+  refreshRepoViews(pid);
+}
+
+const REPO_NAME_RE = /^[A-Za-z0-9][\w./-]{0,39}$/;
+function repoCanEdit(p) { const r = myRoleOn(p); return r === 'owner' || r === 'editor'; }
+function createBranchUI(pid) {
+  const d = DB.data(), p = d.projects[pid]; if (!p) return;
+  if (!repoCanEdit(p)) { toast('Only owners and editors can create branches.', true); return; }
+  repoBranchOf(p);
+  const name = ($('repoNewBranch').value || '').trim();
+  if (!REPO_NAME_RE.test(name)) { toast('Branch names: letters, numbers, - _ . / (max 40).', true); return; }
+  if (p.branches.includes(name)) { toast('A branch called ' + name + ' already exists.', true); return; }
+  p.branchFiles[p.currentBranch] = structuredCloneSafe(p.files);
+  p.branchFiles[name] = structuredCloneSafe(p.files);
+  p.branches.push(name);
+  DB.saveData(d);
+  toast('Branch ' + name + ' created from ' + p.currentBranch + '.');
+  switchBranch(pid, name);
+}
+function switchBranch(pid, name) {
+  const d = DB.data(), p = d.projects[pid]; if (!p) return;
+  repoBranchOf(p);
+  if (!p.branches.includes(name) || name === p.currentBranch) return;
+  if (!repoCanEdit(p)) { toast('Only owners and editors can switch branches.', true); refreshRepoViews(pid); return; }
+  p.branchFiles[p.currentBranch] = structuredCloneSafe(p.files);
+  p.files = structuredCloneSafe(p.branchFiles[name] || {});
+  p.currentBranch = name; p.updatedAt = Date.now();
+  DB.saveData(d);
+  openProjectDetail(pid, true);
+  toast('Switched to branch ' + name + '.');
+}
+function mergeBranchUI(pid) {
+  const d = DB.data(), p = d.projects[pid]; if (!p) return;
+  repoBranchOf(p);
+  if (!repoCanEdit(p)) { toast('Only owners and editors can merge.', true); return; }
+  const from = p.currentBranch;
+  if (from === 'main') { toast('Switch to the branch you want to merge into main first.', true); return; }
+  const mainFiles = structuredCloneSafe(p.branchFiles.main || {});
+  p.versions = p.versions || [];
+  p.versions.push({ id: uid('ver'), label: 'Before merging ' + from, note: 'Automatic snapshot of main', at: Date.now(), snapshot: structuredCloneSafe(mainFiles) });
+  p.branchFiles[from] = structuredCloneSafe(p.files);
+  p.branchFiles.main = Object.assign(mainFiles, structuredCloneSafe(p.files));
+  p.files = structuredCloneSafe(p.branchFiles.main);
+  p.currentBranch = 'main'; p.updatedAt = Date.now();
+  notifyWatchers(p, 'Branch merged', me().username + ' merged ' + from + ' into main on ' + p.name + '.');
+  DB.saveData(d);
+  openProjectDetail(pid, true);
+  toast('Merged ' + from + ' into main. A snapshot of main was saved first.');
+}
+function deleteBranchUI(pid, name) {
+  const d = DB.data(), p = d.projects[pid]; if (!p) return;
+  repoBranchOf(p);
+  if (!repoCanEdit(p)) return;
+  if (name === 'main' || name === p.currentBranch) { toast('You cannot delete main or the branch you are on.', true); return; }
+  if (!confirm('Delete branch ' + name + '? Its files will be removed.')) return;
+  p.branches = p.branches.filter(b => b !== name); delete p.branchFiles[name];
+  DB.saveData(d); refreshRepoViews(pid); toast('Branch ' + name + ' deleted.');
+}
+function createTagUI(pid) {
+  const d = DB.data(), p = d.projects[pid]; if (!p) return;
+  if (!repoCanEdit(p)) { toast('Only owners and editors can create tags.', true); return; }
+  const name = ($('repoNewTag').value || '').trim(), note = ($('repoNewTagNote').value || '').trim();
+  if (!REPO_NAME_RE.test(name)) { toast('Tag names look like v1.0 (letters, numbers, - _ . /).', true); return; }
+  p.releaseTags = p.releaseTags || [];
+  if (p.releaseTags.some(t => t.name === name)) { toast('Tag ' + name + ' already exists.', true); return; }
+  p.releaseTags.unshift({ name, note, at: Date.now(), by: myId(), branch: repoBranchOf(p).currentBranch, snapshot: structuredCloneSafe(p.files) });
+  notifyWatchers(p, 'New tag', me().username + ' tagged ' + name + ' on ' + p.name + '.');
+  DB.saveData(d); refreshRepoViews(pid); toast('Tag ' + name + ' created.');
+}
+function restoreTagUI(pid, name) {
+  const d = DB.data(), p = d.projects[pid]; if (!p || !repoCanEdit(p)) return;
+  const t = (p.releaseTags || []).find(x => x.name === name); if (!t) return;
+  if (!confirm('Restore the files from tag ' + name + '? Your current files are saved as a version first.')) return;
+  p.versions = p.versions || [];
+  p.versions.push({ id: uid('ver'), label: 'Before restoring ' + name, note: 'Automatic snapshot', at: Date.now(), snapshot: structuredCloneSafe(p.files) });
+  p.files = structuredCloneSafe(t.snapshot); p.updatedAt = Date.now();
+  DB.saveData(d); openProjectDetail(pid, true); toast('Restored ' + name + '.');
+}
+function deleteTagUI(pid, name) {
+  const d = DB.data(), p = d.projects[pid]; if (!p || !repoCanEdit(p)) return;
+  if (!confirm('Delete tag ' + name + '?')) return;
+  p.releaseTags = (p.releaseTags || []).filter(t => t.name !== name);
+  DB.saveData(d); refreshRepoViews(pid);
+}
+
+function renderRepoBar(p, role) {
+  const box = $('repoBar'); if (!box) return;
+  repoBranchOf(p);
+  const isOwner = role === 'owner', canEdit = isOwner || role === 'editor', signedIn = !!me();
+  const watching = signedIn && (p.watchedBy || []).includes(myId());
+  const starred = signedIn && (p.starredBy || []).includes(myId());
+  const pinned = signedIn && isProjectPinned(p.id);
+  const pub = p.visibility === 'public';
+  const vis = isOwner
+    ? `<select class="repo-vis-select ${pub ? 'is-public' : 'is-private'}" onchange="setProjectVisibility('${p.id}', this.value)" title="Who can see this repository">
+        ${['public', 'friends', 'selected', 'private'].map(v => `<option value="${v}" ${p.visibility === v ? 'selected' : ''}>${VIS_LABEL[v]}</option>`).join('')}</select>`
+    : `<span class="repo-vis ${pub ? 'is-public' : 'is-private'}">${repoIcon(pub ? 'globe' : 'lock')}${esc(VIS_LABEL[p.visibility] || p.visibility)}</span>`;
+  const tags = p.releaseTags || [];
+  box.innerHTML = `<div class="repo-bar">
+    <div class="repo-row">
+      <div class="repo-left">${isOwner ? `<span class="repo-vis-ico ${pub ? 'is-public' : 'is-private'}">${repoIcon(pub ? 'globe' : 'lock')}</span>` : ''}${vis}
+        <span class="repo-meta">${esc(userById(p.ownerId)?.username || 'unknown')} / <b>${esc(p.name)}</b></span></div>
+      <div class="repo-actions">
+        <button class="repo-btn ${pinned ? 'on' : ''}" onclick="toggleProjectPin('${p.id}')" title="Pin to the top of your projects">${repoIcon('pin')}${pinned ? 'Pinned' : 'Pin'}</button>
+        <button class="repo-btn ${watching ? 'on' : ''}" onclick="toggleWatch('${p.id}')" title="Get notified about new versions, tags and merges">${repoIcon('eye')}${watching ? 'Watching' : 'Watch'}<span class="repo-count">${(p.watchedBy || []).length}</span></button>
+        <button class="repo-btn ${starred ? 'on' : ''}" onclick="repoToggleStar('${p.id}', event)">${repoIcon('star')}${starred ? 'Starred' : 'Star'}<span class="repo-count">${p.stars || 0}</span></button>
+        <button class="repo-btn" onclick="forkProjectUI('${p.id}')">${repoIcon('fork')}Fork<span class="repo-count">${projectForkCount(p)}</span></button>
+      </div>
+    </div>
+    <div class="repo-row repo-row-2">
+      <div class="repo-branchbox">${repoIcon('branch')}
+        <select class="repo-select" onchange="switchBranch('${p.id}', this.value)" ${canEdit ? '' : 'disabled'} title="Current branch">
+          ${p.branches.map(b => `<option ${b === p.currentBranch ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>
+        <span class="repo-meta">${p.branches.length} branch${p.branches.length === 1 ? '' : 'es'}</span>
+        ${canEdit && p.currentBranch !== 'main' ? `<button class="repo-btn small" onclick="mergeBranchUI('${p.id}')">Merge into main</button>` : ''}
+        ${canEdit && p.branches.filter(b => b !== 'main' && b !== p.currentBranch).length ? `<select class="repo-select repo-del-select" title="Branch to delete">${p.branches.filter(b => b !== 'main' && b !== p.currentBranch).map(b => `<option>${esc(b)}</option>`).join('')}</select>
+          <button class="repo-btn small danger" onclick="deleteBranchUI('${p.id}', document.querySelector('.repo-del-select').value)">Delete</button>` : ''}
+      </div>
+      ${canEdit ? `<div class="repo-newbox"><input id="repoNewBranch" placeholder="new-branch" maxlength="40"><button class="repo-btn small" onclick="createBranchUI('${p.id}')">+ Branch</button></div>` : ''}
+    </div>
+    <div class="repo-row repo-row-2">
+      <div class="repo-branchbox">${repoIcon('tag')}<span class="repo-meta">${tags.length} tag${tags.length === 1 ? '' : 's'}</span>
+        ${tags.slice(0, 8).map(t => `<span class="repo-tagchip" title="${esc(t.note || '')} · ${new Date(t.at).toLocaleDateString()}">${esc(t.name)}
+            ${canEdit ? `<button title="Restore these files" onclick="restoreTagUI('${p.id}', '${esc(t.name)}')">restore</button><button title="Delete tag" onclick="deleteTagUI('${p.id}', '${esc(t.name)}')">×</button>` : ''}</span>`).join('')}
+      </div>
+      ${canEdit ? `<div class="repo-newbox"><input id="repoNewTag" placeholder="v1.0" maxlength="40"><input id="repoNewTagNote" placeholder="note (optional)" maxlength="80"><button class="repo-btn small" onclick="createTagUI('${p.id}')">+ Tag</button></div>` : ''}
+    </div>
+  </div>`;
 }
