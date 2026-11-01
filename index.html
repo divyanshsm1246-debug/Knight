@@ -35,6 +35,10 @@
 <link rel="shortcut icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#100f11">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Knight">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -150,6 +154,7 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="4"/><path d="M8 12v9M8 15h4M8 18h3"/><path d="M12.5 9.5 20 2"/><path d="M17 5l2 2M14.5 7.5l2 2"/></svg>
       Sign in with a Passkey
     </button>
+    <button type="button" class="nav-cta" style="width:100%; margin-top:8px;" onclick="openAccountUI()">Open an account with its ID</button>
   </div>
 </section>
 
@@ -236,11 +241,11 @@
       <div class="enter-btn">Play Arcade <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
-    <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('gameBoosterPage')">
+    <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('knightAppPage')">
       <div class="icon-box"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"></path></svg></div>
-      <h3>Game Booster</h3>
+      <h3>Knight App <span class="kapp-badge" style="display:none"></span></h3>
       <p>Real CPU, memory, network, and battery readouts straight from your browser — plus a live FPS meter.</p>
-      <div class="enter-btn">Open Booster <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
+      <div class="enter-btn">Open Knight App <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></div>
     </div>
 
     <div class="dash-card theme-orange" tabindex="0" onclick="openKnightPage('commPage')">
@@ -588,10 +593,13 @@
   <div class="proj-tabs">
     <button class="proj-tab active" data-tab="overview" onclick="setProjectTab('overview')">Overview</button>
     <button class="proj-tab" data-tab="files" onclick="setProjectTab('files')">Files<span class="proj-tab-count" id="tabCountFiles"></span></button>
+    <button class="proj-tab" data-tab="issues" onclick="setProjectTab('issues')">Issues<span class="proj-tab-count" id="tabCountIssues"></span></button>
+    <button class="proj-tab" data-tab="pulls" onclick="setProjectTab('pulls')">Pull requests<span class="proj-tab-count" id="tabCountPulls"></span></button>
     <button class="proj-tab" data-tab="ai" onclick="setProjectTab('ai')">Knight_Ai</button>
     <button class="proj-tab" data-tab="versions" onclick="setProjectTab('versions')">Versions<span class="proj-tab-count" id="tabCountVersions"></span></button>
     <button class="proj-tab" data-tab="contributors" onclick="setProjectTab('contributors')">Contributors<span class="proj-tab-count" id="tabCountMembers"></span></button>
     <button class="proj-tab" data-tab="changes" onclick="setProjectTab('changes')">Changes<span class="proj-tab-count" id="tabCountChanges"></span></button>
+    <button class="proj-tab" data-tab="insights" onclick="setProjectTab('insights')">Insights</button>
     <button class="proj-tab" data-tab="deploy" onclick="setProjectTab('deploy')">Deploy</button>
   </div>
 
@@ -608,7 +616,8 @@
     </div>
     <div id="projectForkedFromNote" class="cloud-note is-off" style="display:none; padding:10px 14px; font-size:.76rem;"></div>
 
-    <div class="shortcut-category-label" style="margin-top:22px;">Recent Activity</div>
+    <div id="projReadme"></div>
+  <div class="shortcut-category-label" style="margin-top:22px;">Recent Activity</div>
     <div id="projectActivityList" style="display:flex; flex-direction:column; gap:8px;"></div>
 
     <div id="projectDangerZone" class="danger-zone" style="display:none;">
@@ -645,7 +654,10 @@
   <!-- ===== Versions ===== -->
   <div class="proj-panel" id="projPanel-versions">
     <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:10px;">Snapshots of every file at a point in time. Cutting a new version never overwrites an old one — you can always roll back.</p>
-    <button class="nav-cta" style="margin-bottom:12px;" onclick="scanVersionsForErrorsUI()">🔍 Scan All Versions for Errors</button>
+    <div class="cmp-box"><h4 class="gh-h" style="margin-top:0">Compare</h4>
+      <div class="cmp-controls"><select id="cmpBase"></select><span>→</span><select id="cmpHead"></select><button class="nav-cta btn-golden" onclick="runCompareUI()">Compare</button></div>
+      <div id="cmpResult"></div></div>
+    <button class="nav-cta" style="margin-bottom:12px;" onclick="scanVersionsForErrorsUI()">Scan all versions for errors</button>
     <div id="versionScanResult" class="version-scan-result"></div>
     <div id="versionsList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;"></div>
     <div class="friend-add-row" id="cutVersionRow">
@@ -704,6 +716,10 @@
   </div>
 
   <!-- ===== Deploy ===== -->
+  <div class="proj-panel" id="projPanel-issues"><div id="issuesBox"></div></div>
+  <div class="proj-panel" id="projPanel-pulls"><div id="pullsBox"></div></div>
+  <div class="proj-panel" id="projPanel-insights"><div id="insightsBox"></div></div>
+
   <div class="proj-panel" id="projPanel-deploy">
     <div id="projectDeployNote" class="cloud-note"></div>
     <div class="deploy-actions" style="margin-bottom:14px;" id="projectDeployActionsRow"></div>
@@ -772,13 +788,14 @@
           <div id="termJump" style="margin-top:8px;"></div>
           <div class="shortcut-category-label" style="margin-top:18px;">Console — Run History</div>
           <div id="termConsoleHistory" class="term-console-history"></div>
+          <div id="termHomePreviews"></div>
         </div>
 
         <!-- Debug -->
         <div class="term-ws-panel" id="termWsPanel-debug">
-          <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:12px;">Checks every file in this project for syntax errors, unclosed brackets and tags, and bad JSON, and shows the exact line. Click a result to open it at that line.</p>
-          <button class="nav-cta" style="margin-bottom:12px;" onclick="runTermDebugScan()">Find errors in all files</button>
-          <div id="termDebugResult"></div>
+          <div class="live-head"><span id="termLiveStatus" class="live-status">Starting the live error watch…</span><button class="nav-cta" style="font-size:.7rem;padding:5px 10px;" onclick="liveClear()">Clear</button></div>
+          <div id="termLiveLog" class="live-console"></div>
+          <div id="termDebugResult" style="display:none"></div>
 
           <div class="shortcut-category-label" style="margin-top:20px;">Live Runtime Console</div>
           <p style="font-size:.78rem; color:var(--text-secondary); margin-bottom:10px;">Real console.log/warn/error output from the site actually running in the Server tab's preview — this is genuine execution, not a simulation. Open the Server tab to start it running.</p>
@@ -1004,56 +1021,17 @@
     </div>
   </div>
 
-  <!-- ===== AI Assistant ===== -->
+  <!-- ===== Knight AI ===== -->
   <div class="cloud-config-card" style="margin-bottom:30px;">
     <h3 style="margin-bottom:4px;">Knight_Ai</h3>
     <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">
-      Knight_Ai works out of the box. Only if you want a different model, add your own OpenRouter key below. It stays in this browser.
+      Knight AI is built in and free. Connect once and it works everywhere in Knight: your projects, the terminal and the Knight App.
+      Anything that looks like a secret is removed before a message leaves your browser.
     </p>
-    <div class="field">
-      <label class="font-mono">OpenRouter API key</label>
-      <input type="password" id="aiKeyInput" placeholder="sk-or-v1-..." autocomplete="off">
-    </div>
-    <div class="field">
-      <label class="font-mono">Model</label>
-      <input type="text" id="aiModelInput" placeholder="openrouter/auto">
-    </div>
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <button class="submit-btn" style="width:auto; padding:11px 24px;" onclick="saveAiSettingsUI()">Save</button>
-      <button class="nav-cta" onclick="testAiUI()">Test AI</button>
-      <button class="nav-cta" style="color:var(--accent-coral);" onclick="clearAiKeyUI()">Remove Key</button>
-      <span id="aiSettingsStatus" style="font-size:.78rem; color:var(--text-tertiary);"></span>
-    </div>
-  </div>
-
-  <!-- ===== AI Assistant: Puter fallback (no key needed) ===== -->
-  <div class="cloud-config-card" style="margin-bottom:30px;">
-    <h3 style="margin-bottom:4px;">Knight_Ai on Puter</h3>
-    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">
-      When no OpenRouter key is set above (yours or the site's), Knight can fall back to
-      <a href="https://puter.com" target="_blank" rel="noopener">Puter</a>'s free hosted AI — nothing to paste, nothing to configure.
-      Your prompts go to puter.com instead of OpenRouter when this is used; turn it off if you'd rather AI stay off until a key is added.
-      Before anything is sent, <code>puter-guard.js</code> strips text that looks like an API key, password or connection string — a safety net, not a guarantee, so still avoid pasting real secrets into chat.
-    </p>
-    <p style="font-size:.8rem; color:var(--text-secondary); margin-bottom:14px;">
-      One extra step the first time: Puter's AI is free but tied to a free Puter account, and signing in opens a small popup — browsers only allow that from a direct click, so click <b>Connect Puter</b> once below (allow the popup if your browser asks). After that it works everywhere in Knight, including "Hey Knight" by voice, with no further popups.
-    </p>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
-      <button class="submit-btn" style="width:auto; padding:11px 24px;" onclick="puterConnectUI()">Connect Puter</button>
+      <button class="submit-btn" style="width:auto; padding:11px 24px;" onclick="puterConnectUI()">Connect Knight AI</button>
+      <button class="nav-cta" onclick="testPuterUI()">Test</button>
       <span id="puterConnectStatus" style="font-size:.78rem; color:var(--text-tertiary);"></span>
-    </div>
-    <div class="field">
-      <label class="font-mono">Model (optional)</label>
-      <input type="text" id="puterModelInput" placeholder="leave blank for Puter's default">
-    </div>
-    <label class="remember-row" style="margin-bottom:14px;">
-      <input type="checkbox" id="puterEnabledToggle" checked>
-      <span class="remember-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
-      <span class="remember-text">Use Puter when no key is set</span>
-    </label>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <button class="submit-btn" style="width:auto; padding:11px 24px;" onclick="savePuterSettingsUI()">Save</button>
-      <button class="nav-cta" onclick="testPuterUI()">Test Puter</button>
       <span id="puterSettingsStatus" style="font-size:.78rem; color:var(--text-tertiary);"></span>
     </div>
   </div>
@@ -1074,7 +1052,7 @@
     <option value="socialPage">Social &amp; Friends</option>
     <option value="notesPage">Notes</option>
     <option value="arcadePage">Arcade</option>
-    <option value="gameBoosterPage">Game Booster</option>
+    <option value="knightAppPage">Knight App</option>
     <option value="linkDeployerPage">Link Deployer</option>
   </select>
 
@@ -1152,6 +1130,8 @@
   <button class="nav-cta btn-golden" style="margin-bottom:14px;" onclick="openFeedbackUI()">Send Feedback</button>
   <div id="feedbackHistory" style="display:flex; flex-direction:column; gap:6px; max-width:560px; margin-bottom:26px;"></div>
 
+  <div class="shortcut-category-label">Account ID</div>
+  <div id="accountIdCard" class="cloud-config-card" style="max-width:560px;margin-bottom:18px;"></div>
   <div class="shortcut-category-label">Account</div>
   <button class="nav-cta" style="color:var(--accent-coral);" onclick="signOutUI()">Sign Out</button>
 
@@ -1182,18 +1162,36 @@
   </div>
 </div>
 
-<!-- ================= Game Booster ================= -->
-<div class="knight-page" id="gameBoosterPage">
+<!-- ================= Knight App ================= -->
+<div class="knight-page" id="knightAppPage">
   <div class="page-topbar">
-    <div class="page-back" onclick="closeKnightPage('gameBoosterPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
-    <div class="page-title">Game Booster</div>
+    <div class="page-back" onclick="closeKnightPage('knightAppPage')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></div>
+    <div class="page-title">Knight App</div>
   </div>
-  <p style="font-size:.82rem; color:var(--text-secondary); margin-bottom:20px; max-width:640px;">
-    Real numbers straight from your browser's own APIs — nothing here is simulated. Knight can't reach into your OS or hardware from a webpage, but it can read what the browser exposes and tell you what that means for gaming performance.
-  </p>
-  <div class="dash-grid" id="gameBoosterGrid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));"></div>
-  <div class="shortcut-category-label">Recommendations</div>
-  <div id="gameBoosterTips" style="display:flex; flex-direction:column; gap:10px; max-width:640px;"></div>
+  <div id="kappHero"></div>
+  <div id="kappBody"></div>
+</div>
+
+<div class="modal-overlay" id="kappPreviewModal">
+  <div class="modal-content" style="max-width:min(1100px,96vw); width:96vw;">
+    <svg class="close-modal" onclick="closeModal('kappPreviewModal');$('kappPreviewFrame').srcdoc=''" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 id="kappPreviewTitle" style="margin-bottom:10px;">Preview</h2>
+    <div class="gh-filters" style="margin-bottom:10px"><button onclick="kappPreviewSize('phone')">Phone</button><button onclick="kappPreviewSize('tablet')">Tablet</button><button onclick="kappPreviewSize('desktop')">Desktop</button></div>
+    <div class="kapp-pstage"><iframe id="kappPreviewFrame" class="kapp-pframe desktop" sandbox="allow-scripts allow-forms allow-modals"></iframe></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="accountOpenModal">
+  <div class="modal-content" style="max-width:460px;">
+    <svg class="close-modal" onclick="closeModal('accountOpenModal')" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    <h2 style="margin-bottom:6px;">Open an account</h2>
+    <p style="font-size:.8rem;color:var(--text-secondary);margin-bottom:14px;">Paste an Account ID (like KNT-AB12CD) and its password. If you have an offline key instead, paste that. No email needed.</p>
+    <div class="field"><label class="font-mono">Account ID or offline key</label><input type="text" id="acctOpenInput" oninput="acctOpenPeek()" autocomplete="off" spellcheck="false" placeholder="KNT-XXXXXX"></div>
+    <p id="acctOpenWho" style="font-size:.78rem;color:var(--accent-gold);margin:-4px 0 10px;min-height:16px;"></p>
+    <div class="field"><label class="font-mono">Password</label><input type="password" id="acctOpenPass" autocomplete="current-password" onkeydown="if(event.key==='Enter')openAccountSubmit()"></div>
+    <button class="submit-btn" id="acctOpenBtn" style="width:100%;" onclick="openAccountSubmit()">Open account</button>
+    <p id="acctOpenStatus" style="font-size:.78rem;color:var(--text-tertiary);margin-top:10px;min-height:18px;"></p>
+  </div>
 </div>
 
 <!-- ================= Link Deployer ================= -->

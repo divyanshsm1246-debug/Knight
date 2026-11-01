@@ -165,6 +165,10 @@ class KnightUser {
     @Column(nullable = false)
     private String passHash;
 
+    /** SHA-256 of (password + socialId): lets someone open their account from just the Account ID + password. */
+    @JsonIgnore
+    private String idHash;
+
     @Column(nullable = false, unique = true)
     private String socialId;
 
@@ -206,6 +210,8 @@ class KnightUser {
     public void setUsername(String v) { this.username = v; }
     public String getPassHash() { return passHash; }
     public void setPassHash(String v) { this.passHash = v; }
+    public String getIdHash() { return idHash; }
+    public void setIdHash(String v) { this.idHash = v; }
     public String getSocialId() { return socialId; }
     public void setSocialId(String v) { this.socialId = v; }
     public String getRole() { return role; }
@@ -670,7 +676,7 @@ class AuthService {
         return candidate;
     }
 
-    KnightUser signUp(String email, String username, String passHash) {
+    KnightUser signUp(String email, String username, String passHash, String wantedSocialId, String idHash) {
         String key = email.toLowerCase().trim();
         if (users.existsByEmailIgnoreCase(key))
             throw new ApiException(HttpStatus.CONFLICT, "An account with that email already exists.");
@@ -679,17 +685,35 @@ class AuthService {
 
         KnightUser u = new KnightUser(key,
                 (username == null || username.isBlank()) ? key.split("@")[0] : username.trim(),
-                hashSecret(passHash), newSocialId());
+                hashSecret(passHash), pickSocialId(wantedSocialId));
+        if (idHash != null && idHash.length() >= 10) u.setIdHash(hashSecret(idHash));
         // First account created on a fresh deployment becomes the admin.
         u.setAdmin(users.count() == 0);
         return users.save(u);
     }
 
-    KnightUser signIn(String email, String passHash) {
+    /** Keep the Account ID the browser chose when it is well-formed and free; otherwise mint a fresh one. */
+    String pickSocialId(String wanted) {
+        if (wanted != null && wanted.matches("^KNT-[A-Z0-9]{6}$") && !users.existsBySocialId(wanted)) return wanted;
+        return newSocialId();
+    }
+
+    /** Open an account from its Account ID + password (no email needed). */
+    KnightUser signInById(String socialId, String idHash) {
+        KnightUser u = users.findBySocialIdIgnoreCase(socialId == null ? "" : socialId.trim())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No account has that ID."));
+        if (u.getIdHash() == null || idHash == null || !verifySecret(idHash, u.getIdHash()))
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Incorrect password for that account.");
+        u.setLastSeen(Instant.now());
+        return users.save(u);
+    }
+
+    KnightUser signIn(String email, String passHash, String idHash) {
         KnightUser u = users.findByEmailIgnoreCase(email.toLowerCase().trim())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No account found for that email."));
         if (!verifySecret(passHash, u.getPassHash()))
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Incorrect passphrase.");
+        if (u.getIdHash() == null && idHash != null && idHash.length() >= 10) u.setIdHash(hashSecret(idHash));   // backfill older accounts
         u.setLastSeen(Instant.now());
         return users.save(u);
     }
@@ -820,14 +844,25 @@ class AuthController {
 
     @PostMapping("/signup")
     ResponseEntity<AuthResponse> signUp(@RequestBody AuthRequest req) {
-        KnightUser u = auth.signUp(req.email, req.username, req.passHash);
+        KnightUser u = auth.signUp(req.email, req.username, req.passHash, req.socialId, req.idHash);
         return ResponseEntity.ok(new AuthResponse(auth.issueToken(u), u));
     }
 
     @PostMapping("/signin")
     ResponseEntity<AuthResponse> signIn(@RequestBody AuthRequest req) {
-        KnightUser u = auth.signIn(req.email, req.passHash);
+        KnightUser u = auth.signIn(req.email, req.passHash, req.idHash);
         return ResponseEntity.ok(new AuthResponse(auth.issueToken(u), u));
+    }
+
+    /** Account ID + password -> token + the account (including its email, which only the password holder sees). */
+    @PostMapping("/signin-id")
+    ResponseEntity<Map<String, Object>> signInById(@RequestBody IdSignInRequest req) {
+        KnightUser u = auth.signInById(req.socialId, req.idHash);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("token", auth.issueToken(u));
+        out.put("user", u);
+        out.put("email", u.getEmail());
+        return ResponseEntity.ok(out);
     }
 
     @PostMapping("/guest")
@@ -1464,6 +1499,13 @@ class AuthRequest {
     public String email;
     public String username;
     public String passHash;     // SHA-256 of (password + email), done in the browser
+    public String socialId;     // optional: the Account ID the browser already generated (KNT-XXXXXX)
+    public String idHash;       // optional: SHA-256 of (password + socialId), for sign-in by Account ID
+}
+
+class IdSignInRequest {
+    public String socialId;
+    public String idHash;
 }
 
 class AuthResponse {

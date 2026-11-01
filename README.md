@@ -58,3 +58,11 @@ trash button on its card. If it is deployed on Knight Cloud, the live site is de
 - **Error finder**: Terminal > "Find errors" and the Debug tab show the exact line of syntax problems.
 - **Repo bar**: public/private, watch, pin, star, fork count, branches (create / switch / merge / delete) and tags.
 - Copy `frontend/config.example.js` to `frontend/config.js` and set `apiBase`. Favicons are real files now.
+
+## Knight App, accounts, compare (this version)
+- **Knight App** (formerly Game Booster): `manifest.webmanifest` + `sw.js` make Knight installable. The installed app and the website
+  share one inbox and talk to each other live. Notifications appear when Knight AI finishes or someone needs you. Real push while the
+  app is fully closed would need Web Push keys on the backend (not included).
+- **Account ID**: the browser's Account ID is now kept by the server (`socialId` + `idHash` sent at sign-up). Open any account with
+  ID + password (`POST /api/auth/signin-id`), or with the offline key from Settings when the server is down. Redeploy the backend.
+- **Compare** (Versions tab), **Issues**, **Pull requests**, **Insights**, **README** are in each project. The terminal has a live error watch.
