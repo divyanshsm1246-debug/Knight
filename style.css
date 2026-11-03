@@ -1596,3 +1596,37 @@ body.reduce-motion .kb-btn.listening, body.reduce-motion .kb-btn.busy, body.redu
 .kapp-empty{text-align:center;padding:40px 16px;color:var(--text-secondary);font-size:.86rem}.kapp-empty h3{color:var(--text-primary);margin-bottom:6px}.kapp-empty .nav-cta{margin-top:12px}
 .kapp-pstage{display:flex;justify-content:center;background:#0b0b0d;border-radius:12px;padding:12px;height:68vh}.kapp-pframe{border:0;background:#fff;border-radius:10px;height:100%}.kapp-pframe.desktop{width:100%}.kapp-pframe.tablet{width:768px;max-width:100%}.kapp-pframe.phone{width:390px;max-width:100%}
 .acct-id{font-family:'JetBrains Mono',monospace;font-size:1.5rem;letter-spacing:.08em;color:var(--accent-gold);margin-bottom:8px}#accountIdCard p{font-size:.8rem;color:var(--text-secondary);margin-bottom:12px}
+
+/* ===== follow prompt ===== */
+.follow-ig{width:68px;height:68px;border-radius:20px;margin:0 auto;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f9ce34,#ee2a7b 55%,#6228d7)}
+/* ===== app lock: the installed app is a focused mailbox ===== */
+.app-lock #dashboard .dash-grid,.app-lock .dash-header .nav-links{display:none}
+.app-lock #knightAppPage .page-back{display:none}
+/* ===== device diagnostics + boost modes ===== */
+.diag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:14px}
+.diag-card{border:1px solid var(--panel-border);border-radius:14px;padding:13px 14px;background:rgba(255,255,255,.03);display:flex;flex-direction:column;gap:4px;min-width:0}
+.diag-card small{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary)}.diag-card b{font-size:.95rem;word-break:break-word}.diag-card span{font-size:.74rem;color:var(--text-secondary)}
+.diag-bar{height:6px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden;margin-top:6px}.diag-bar i{display:block;height:100%;background:var(--accent-gold);border-radius:4px}.diag-bar i.bad{background:#ff6b6b}
+.diag-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.diag-score{font-size:.84rem;color:var(--text-secondary)}.diag-score b{color:var(--accent-gold);font-size:1.1rem}
+.boost-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:10px}
+.boost-card{position:relative;text-align:left;border:1px solid var(--panel-border);border-radius:14px;padding:14px;background:rgba(255,255,255,.03);color:var(--text-primary);cursor:pointer;display:flex;flex-direction:column;gap:6px;transition:border-color .15s}
+.boost-card:hover{border-color:var(--panel-border-hover)}.boost-card.on{border-color:rgba(243,198,35,.6);background:rgba(243,198,35,.07)}
+.boost-card span{font-size:.76rem;color:var(--text-secondary);line-height:1.45}.boost-card em{position:absolute;top:10px;right:12px;font-style:normal;font-size:.64rem;color:var(--accent-gold)}
+/* modes that switch effects off */
+.boost-performance *,.boost-saver *,.boost-gaming *{animation-duration:.001s !important;animation-iteration-count:1 !important;transition-duration:.001s !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
+
+/* ===== Hey Knight ===== */
+.voice-top{display:flex;gap:18px;align-items:center;margin-bottom:14px}.voice-top h3{font-size:1.1rem}.voice-top p{font-size:.84rem;color:var(--text-secondary);margin:3px 0 6px}
+.voice-orb{width:76px;height:76px;border-radius:50%;border:1px solid var(--panel-border);background:rgba(255,255,255,.05);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;transition:all .2s}
+.voice-orb.on{color:var(--accent-gold);border-color:rgba(243,198,35,.6);box-shadow:0 0 0 6px rgba(243,198,35,.08)}
+.voice-orb.awake{color:#08080a;background:var(--accent-gold);box-shadow:0 0 0 8px rgba(243,198,35,.2),0 0 30px rgba(243,198,35,.5)}
+.voice-opt{font-size:.76rem;color:var(--text-tertiary);display:flex;gap:6px;align-items:center}
+.voice-chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.voice-chips button{background:rgba(255,255,255,.05);border:1px solid var(--panel-border);color:var(--text-secondary);border-radius:20px;padding:6px 12px;font-size:.76rem;cursor:pointer}.voice-chips button:hover{color:var(--accent-gold);border-color:rgba(243,198,35,.5)}
+.voice-line{border:1px solid var(--panel-border);border-radius:10px;padding:8px 12px;margin-bottom:6px;font-size:.82rem;display:flex;flex-direction:column;gap:2px}.voice-line span{color:var(--text-secondary)}.voice-line.bad{border-color:rgba(255,107,107,.4)}
+.perm-row{display:flex;gap:12px;align-items:center;border:1px solid var(--panel-border);border-radius:12px;padding:10px 14px;margin-bottom:8px}.perm-row>div{flex:1}.perm-row small{display:block;color:var(--text-tertiary);font-size:.72rem}
+.perm-st{font-size:.68rem;padding:3px 10px;border-radius:20px;border:1px solid var(--panel-border);color:var(--text-tertiary)}.perm-st.granted{color:#7be0b1;border-color:rgba(108,154,139,.5)}.perm-st.denied{color:#ff6b6b;border-color:rgba(255,107,107,.5)}
+/* ===== more boost modes ===== */
+.boost-coding *,.boost-editing *{animation-duration:.001s !important;transition-duration:.001s !important;backdrop-filter:none !important}
+.boost-coding #termCodeInput,.boost-coding .code-textarea{font-size:16px !important;line-height:1.7 !important}
+.boost-editing{--text-secondary:#c9c9d1}.boost-editing .readme-body,.boost-editing .gh-cbody,.boost-editing .kapp-msg{font-size:1.02rem;line-height:1.75}
+.boost-night{filter:sepia(.35) saturate(.85) brightness(.88)}

@@ -29,3 +29,9 @@ services:
       # public https://ce.judge0.com (rate limited). Point this at your own Judge0 for heavy use.
       - key: JUDGE0_URL
         sync: false
+      # Business access. Set these in the Render dashboard, never in a file you commit.
+      # KNIGHT_ADMIN_CODE opens the admin account. KNIGHT_DEMO_CODE (optional) opens the shared Prototype account.
+      - key: KNIGHT_ADMIN_CODE
+        sync: false
+      - key: KNIGHT_DEMO_CODE
+        sync: false

@@ -698,6 +698,50 @@ class AuthService {
         return newSocialId();
     }
 
+    private final Map<String, long[]> businessTries = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static byte[] sha(String s) {
+        try { return java.security.MessageDigest.getInstance("SHA-256").digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
+        catch (Exception e) { throw new IllegalStateException(e); }
+    }
+    private static boolean sameCode(String a, String b) { return java.security.MessageDigest.isEqual(sha(a), sha(b)); }
+
+    /** Find or create a system account that cannot be opened with a password (only with the business code). */
+    private KnightUser systemAccount(String email, String username, boolean admin) {
+        return users.findByEmailIgnoreCase(email).orElseGet(() -> {
+            KnightUser u = new KnightUser(email, username, hashSecret(UUID.randomUUID().toString() + UUID.randomUUID()), newSocialId());
+            u.setAdmin(admin);
+            return users.save(u);
+        });
+    }
+
+    /**
+     * Business access. The codes are never in the source or the website:
+     *   KNIGHT_ADMIN_CODE  -> opens the site admin account (set it in the Render dashboard)
+     *   KNIGHT_DEMO_CODE   -> opens the shared, powerless Prototype account (default 2345@1/Demo/prototype)
+     */
+    KnightUser businessAccess(String code, String ip) {
+        long now = System.currentTimeMillis();
+        long[] t = businessTries.computeIfAbsent(ip == null ? "?" : ip, k -> new long[]{now, 0});
+        synchronized (t) {
+            if (now - t[0] > 600_000) { t[0] = now; t[1] = 0; }
+            if (++t[1] > 6) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "Too many attempts. Wait ten minutes.");
+        }
+        String admin = System.getenv("KNIGHT_ADMIN_CODE");
+        String demo = Optional.ofNullable(System.getenv("KNIGHT_DEMO_CODE")).filter(s -> !s.isBlank()).orElse("2345@1/Demo/prototype");
+        String given = code == null ? "" : code.trim();
+        if (admin != null && !admin.isBlank() && sameCode(given, admin.trim())) {
+            KnightUser u = systemAccount("admin@knight.local", "Admin", true);
+            if (!u.isAdmin()) { u.setAdmin(true); }
+            u.setLastSeen(Instant.now()); return users.save(u);
+        }
+        if (sameCode(given, demo)) {
+            KnightUser u = systemAccount("prototype@knight.local", "Prototype", false);
+            u.setAdmin(false); u.setLastSeen(Instant.now()); return users.save(u);
+        }
+        throw new ApiException(HttpStatus.UNAUTHORIZED, "That business code is not recognised.");
+    }
+
     /** Open an account from its Account ID + password (no email needed). */
     KnightUser signInById(String socialId, String idHash) {
         KnightUser u = users.findBySocialIdIgnoreCase(socialId == null ? "" : socialId.trim())
@@ -858,6 +902,17 @@ class AuthController {
     @PostMapping("/signin-id")
     ResponseEntity<Map<String, Object>> signInById(@RequestBody IdSignInRequest req) {
         KnightUser u = auth.signInById(req.socialId, req.idHash);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("token", auth.issueToken(u));
+        out.put("user", u);
+        out.put("email", u.getEmail());
+        return ResponseEntity.ok(out);
+    }
+
+    @PostMapping("/business")
+    ResponseEntity<Map<String, Object>> business(@RequestBody Map<String, String> body,
+                                                 @RequestHeader(value = "X-Forwarded-For", required = false) String xff) {
+        KnightUser u = auth.businessAccess(body.get("code"), xff == null ? "local" : xff.split(",")[0].trim());
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("token", auth.issueToken(u));
         out.put("user", u);

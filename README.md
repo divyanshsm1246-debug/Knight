@@ -66,3 +66,14 @@ trash button on its card. If it is deployed on Knight Cloud, the live site is de
 - **Account ID**: the browser's Account ID is now kept by the server (`socialId` + `idHash` sent at sign-up). Open any account with
   ID + password (`POST /api/auth/signin-id`), or with the offline key from Settings when the server is down. Redeploy the backend.
 - **Compare** (Versions tab), **Issues**, **Pull requests**, **Insights**, **README** are in each project. The terminal has a live error watch.
+
+## Business access
+Login screen > **Business access**. The backend checks the code against `KNIGHT_ADMIN_CODE` (admin account) or `KNIGHT_DEMO_CODE`
+(shared Prototype account, default `2345@1/Demo/prototype`). Set `KNIGHT_ADMIN_CODE` in the Render dashboard. It is not in any file.
+
+## Hey Knight (Knight App > Hey Knight tab)
+Say "Hey Knight, open the terminal / gaming mode / code mode / refresh / run my code / create project X", or type it. Simple commands are
+understood instantly; anything else is interpreted by Knight AI into one of a fixed list of safe actions. The installed app sends website
+jobs (open pages, run code, create projects) to the website window; if the website is closed the job waits and runs when you open it.
+Voice needs Chrome or Edge with the window open (browsers stop the microphone in the background). Permissions are browser permissions only.
+Modes: Balanced, Performance, Battery saver, Gaming, Code, Editing, Night, plus a one-tap Refresh clean-up.

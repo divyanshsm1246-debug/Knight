@@ -375,6 +375,7 @@ async function handleAuthSubmit(e) {
     setSession(user.id, rememberChecked());
     enterApp(user, { fresh: true });
     toast(authMode === 'signup' ? 'Account created. Welcome to Knight.' : 'Welcome back, ' + user.username + '.');
+    if (authMode === 'signup') setTimeout(showFollowPrompt, 700);
   } catch (err) {
     authError(err.message || 'Something went wrong. Please try again.');
     // Signing in with an email that has no account is the single most common
@@ -696,6 +697,7 @@ function updateServerButtonContext(pageId) {
 
 function openKnightPage(pageId, fromRouter = false) {
   if (!requireAuth()) return;
+  if (typeof APP_LOCK !== 'undefined' && APP_LOCK && pageId !== 'knightAppPage' && !['aboutPage', 'aboutAiPage'].includes(pageId)) { toast('The app is just for your inbox, Knight AI, previews and device tools. Use Open full website for everything else.'); pageId = 'knightAppPage'; }
   const page = $(pageId);
   if (!page) { show404(); return; }
 
@@ -747,6 +749,7 @@ function unloadEmbeds() {
   ['notesFrame', 'arcadeFrame'].forEach(id => { const f = $(id); if (f && f.getAttribute('src')) f.setAttribute('src', 'about:blank'), f.removeAttribute('src'); });
 }
 function closeKnightPage(pageId) {
+  if (typeof APP_LOCK !== 'undefined' && APP_LOCK && pageId === 'knightAppPage') return;   // nowhere else to go in the app
   const p = $(pageId);
   if (p) p.classList.remove('active');
   if (pageId === 'notesPage' || pageId === 'arcadePage') unloadEmbeds();
@@ -771,7 +774,7 @@ function closeModal(id) { const m = $(id); if (m) m.classList.remove('active'); 
 
 function enterApp(user, { fresh = false } = {}) {
   CURRENT = user;
-  setTimeout(() => { renderAppBadge(); if (APP_MODE === 'app' && fresh !== 'skip' && !location.hash.replace('#', '').length > 0) openKnightPage('knightAppPage'); }, 400);
+  setTimeout(() => { renderAppBadge(); applyBoost(boostMode(), true); if (APP_MODE === 'app') openKnightPage('knightAppPage'); else runQueuedCommands(); }, 400);
   document.body.classList.add('is-authed');
   connectAbly(); connectKnightSocket();
 
@@ -6639,7 +6642,8 @@ Object.assign(window, {
   testCloudConnectionUI, clearTermRuntimeLog, openInfoPage, closeInfoPage, aboutAiAsk,
   runCompareUI, liveClear, setIssueFilter, openIssueView, newIssueUI, issueCommentUI, issueStateUI, setPullFilter, openPullView, newPullUI, prCommentUI, mergePullUI, closePullUI, createReadmeUI,
   installKnightApp, enableAppNotifications, knightAppNotify, kappReply, kappSend, kappPreview, kappPreviewSize, kappToggleItem, kappDismiss, kappGoRoute, kappOpenProject, renderKnightApp,
-  openAccountUI, openAccountSubmit, acctOpenPeek, copyText, makeOfflineKey, renderAccountCard, termGotoLine, checkTermCodeUI,
+  handleSpoken, voiceTypeSubmit, toggleWake, askPermission, askAllPermissions, openWebsiteFromApp, refreshKnight,
+  showFollowPrompt, knightOpenFullSite, knightBackToApp, refreshDiagnostics, runBenchUI, applyBoost, openBusinessUI, businessSubmit, openAccountUI, openAccountSubmit, acctOpenPeek, copyText, makeOfflineKey, renderAccountCard, termGotoLine, checkTermCodeUI,
   openFeedbackUI, submitFeedbackUI, setFeedbackRating, deleteDeployedSiteUI,
   generateAiProjectFilesUI, generateNewProjectFilesUI, toggleAiFile, toggleAiPreview, discardAiProposal,
   applyAiProposalUI, saveAiSettingsUI, clearAiKeyUI, testAiUI, savePuterSettingsUI, testPuterUI, puterConnectUI, deleteProjectUI,
@@ -7375,7 +7379,8 @@ function liveTick(force) {
   const badge = $('termDebugCount'); if (badge) badge.textContent = errs ? ' ' + errs : '';
 }
 function hashStr(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
-setInterval(() => { try { liveTick(); } catch (e) {} }, 1200);
+let liveLastRun = 0;
+setInterval(() => { try { if (Date.now() - liveLastRun < (boostHas('slow-watch') ? 5000 : 1000)) return; liveLastRun = Date.now(); liveTick(); } catch (e) {} }, 1200);
 
 /* ===========================================================================
    TERMINAL HOME: previews of your apps beside the general compiler
@@ -7618,8 +7623,8 @@ function renderInsights(p) {
 /* ===========================================================================
    KNIGHT APP: an installable app that talks to the website
 =========================================================================== */
-const KAPP = { chan: null, deferred: null, peers: {}, tab: 'inbox', chatBusy: false };
-const APP_MODE = (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches) || (navigator.standalone === true) ? 'app' : 'web';
+var KAPP = { chan: null, deferred: null, peers: {}, tab: 'inbox', chatBusy: false };
+var APP_MODE = (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches) || (navigator.standalone === true) ? 'app' : 'web';
 function appInboxKey() { return 'knight_app_inbox_' + (me() ? me().id : 'guest'); }
 function appInbox() { try { return JSON.parse(localStorage.getItem(appInboxKey()) || '[]'); } catch (e) { return []; } }
 function appSaveInbox(list) { try { localStorage.setItem(appInboxKey(), JSON.stringify(list.slice(0, 80))); } catch (e) {} if (KAPP.chan) KAPP.chan.postMessage({ type: 'inbox' }); renderAppBadge(); }
@@ -7645,6 +7650,7 @@ function knightAppNotify({ from, title, text, route, projectId, os }) {
 async function appSystemNotify(item) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (document.visibilityState === 'visible' && document.hasFocus()) return;   // you are looking at Knight already
+  if (typeof boostHas === 'function' && boostHas('mute')) return;                // gaming mode: hold notifications back
   const opts = { body: item.text.slice(0, 160), icon: 'favicon-192.png', badge: 'favicon-192.png', tag: item.id, data: { id: item.id }, actions: [{ action: 'reply', title: 'Reply' }, { action: 'open', title: 'Open' }] };
   try {
     const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
@@ -7690,7 +7696,7 @@ function paintKappLink() {
 }
 
 /* ----- the page ----- */
-function kappTabs() { return [['inbox', 'Inbox'], ['ask', 'Ask Knight AI'], ['previews', 'App previews'], ['device', 'This device']]; }
+function kappTabs() { return [['inbox', 'Inbox'], ['voice', 'Hey Knight'], ['ask', 'Ask Knight AI'], ['previews', 'App previews'], ['device', 'This device']]; }
 function renderKnightApp() {
   const page = $('kappBody'); if (!page) return;
   const installed = APP_MODE === 'app', perm = ('Notification' in window) ? Notification.permission : 'unsupported';
@@ -7700,11 +7706,12 @@ function renderKnightApp() {
       <div class="kapp-hero-text"><h2>Knight App</h2><p>${installed ? 'You are running the installed app.' : 'Install Knight as an app on this device. It opens on its own, stays linked to this website, and tells you when Knight AI finishes something.'}</p>
         <div id="kappLink" class="kapp-link"></div></div>
       <div class="kapp-hero-actions">
-        ${installed ? '<span class="kapp-pill on">Installed</span>' : `<button class="nav-cta btn-golden" onclick="installKnightApp()">Install Knight App</button>`}
+        ${installed ? '<span class="kapp-pill on">Installed</span>' + (APP_LOCK ? '<button class="nav-cta" onclick="knightOpenFullSite()">Open full website</button><button class="nav-cta" onclick="signOutUI()">Sign out</button>' : '<button class="nav-cta" onclick="knightBackToApp()">Back to app view</button>') : `<button class="nav-cta btn-golden" onclick="installKnightApp()">Install Knight App</button>`}
         ${perm === 'granted' ? '<span class="kapp-pill on">Notifications on</span>' : `<button class="nav-cta" onclick="enableAppNotifications()">${perm === 'denied' ? 'Notifications blocked' : 'Turn on notifications'}</button>`}
       </div></div>
     <div class="kapp-tabs">${kappTabs().map(([k, l]) => `<button class="${KAPP.tab === k ? 'on' : ''}" onclick="KAPP.tab='${k}';renderKnightApp()">${l}${k === 'inbox' && unread ? `<span class="kapp-count">${unread}</span>` : ''}</button>`).join('')}</div>`;
   if (KAPP.tab === 'inbox') page.innerHTML = renderKappInbox();
+  else if (KAPP.tab === 'voice') page.innerHTML = renderKappVoice();
   else if (KAPP.tab === 'ask') { page.innerHTML = renderKappAsk(); const l = $('kappChatLog'); if (l) l.scrollTop = l.scrollHeight; }
   else if (KAPP.tab === 'previews') page.innerHTML = renderKappPreviews();
   else page.innerHTML = renderKappDevice();
@@ -7783,12 +7790,6 @@ function kappPreview(pid) {
   openModalRaw('kappPreviewModal');
 }
 function kappPreviewSize(k) { $('kappPreviewFrame').className = 'kapp-pframe ' + k; }
-function renderKappDevice() {
-  const n = navigator, cards = [['CPU threads', (n.hardwareConcurrency || '—') + ' logical cores'], ['Memory', n.deviceMemory ? n.deviceMemory + ' GB (approx.)' : 'Not exposed'],
-    ['Network', n.connection ? (n.connection.effectiveType || '—') + ' · ' + (n.connection.downlink || '?') + ' Mbps' : 'Not exposed'], ['Screen', screen.width + '×' + screen.height + ' @ ' + (window.devicePixelRatio || 1) + 'x'],
-    ['Mode', APP_MODE === 'app' ? 'Installed app' : 'Browser tab'], ['Notifications', ('Notification' in window) ? Notification.permission : 'unsupported']];
-  return `<div class="dash-grid" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr));">${cards.map(([k, v]) => `<div class="dash-card theme-orange" style="cursor:default;"><h3 style="font-size:.9rem;">${k}</h3><p style="font-size:1rem;color:var(--text-primary);">${esc(v)}</p></div>`).join('')}</div>`;
-}
 function renderGameBooster() { renderKnightApp(); }
 
 /* =========================================================================
@@ -7828,6 +7829,7 @@ function acctOpenPeek() {
 function adoptAccount(rec, key) {
   const users = DB.users(); let u = users[key];
   if (!u) { u = newUserRecord({ email: key, username: rec.username, role: rec.role, passHash: rec.passHash }); users[key] = u; }
+  if (rec.admin !== undefined) u.admin = !!rec.admin;
   Object.assign(u, { socialId: rec.socialId || u.socialId, passHash: rec.passHash, username: rec.username || u.username, role: rec.role || u.role, bio: rec.bio || u.bio || '',
     avatarIndex: rec.avatarIndex || 0, level: rec.level || u.level, followers: rec.followers || 0, commits: rec.commits || 0 });
   DB.saveUsers(users); return u;
@@ -7864,4 +7866,375 @@ async function openAccountSubmit() {
     setSession(user.id, true); enterApp(user, { fresh: true }); toast('Welcome back, ' + user.username + '.');
   } catch (e) { st.style.color = 'var(--accent-coral)'; st.textContent = e.message || 'Could not open that account.'; }
   finally { btn.disabled = false; }
+}
+
+/* ---- Business access: the server decides; the website never contains a code ---- */
+function openBusinessUI() { $('bizCode').value = ''; $('bizStatus').textContent = ''; openModalRaw('businessModal'); setTimeout(() => $('bizCode').focus(), 50); }
+async function businessSubmit() {
+  const st = $('bizStatus'), code = $('bizCode').value.trim(), btn = $('bizBtn');
+  if (!code) { st.textContent = 'Enter your business code.'; return; }
+  if (!API_BASE) { st.style.color = 'var(--accent-coral)'; st.textContent = 'Business access needs the server, and it is not connected.'; return; }
+  btn.disabled = true; st.style.color = ''; st.textContent = 'Checking… the first request can take a minute while the server wakes up.';
+  try {
+    const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 70000);
+    let res; try { res = await fetch(API_BASE + '/api/auth/business', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal, body: JSON.stringify({ code }) }); }
+    catch (e) { throw new Error('Could not reach the server.'); } finally { clearTimeout(t); }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(res.status === 401 ? 'That business code is not recognised.' : (j.message || j.error || 'The server answered ' + res.status + '.'));
+    const email = String(j.email).toLowerCase();
+    const rnd = Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2, '0')).join('');
+    const user = adoptAccount({ ...j.user, passHash: rnd }, email);
+    if (j.token) DB.setBackendToken(email, j.token);
+    if (user.username === 'Prototype' && !Object.values(DB.data().projects).some(p => p.ownerId === user.id)) seedPrototypeProject(user);
+    closeModal('businessModal'); setSession(user.id, true); enterApp(user, { fresh: true }); toast('Signed in as ' + user.username + '.');
+  } catch (e) { st.style.color = 'var(--accent-coral)'; st.textContent = e.message || 'Could not sign in.'; }
+  finally { btn.disabled = false; }
+}
+/** The Prototype account starts with one small app so previews, compare and the terminal have something to show. */
+function seedPrototypeProject(user) {
+  const d = DB.data(), id = uid('prj'), now = Date.now();
+  d.projects[id] = { id, name: 'Prototype app', description: 'A sample project to try Knight with.', ownerId: user.id, visibility: 'private', category: 'General', tags: ['sample'], stars: 0, starredBy: [], members: [], createdAt: now, updatedAt: now,
+    files: { 'index.html': '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>Prototype</title><link rel="stylesheet" href="style.css"></head>\n<body><h1>Prototype app</h1><p>Edit me, run me, compare me.</p><button id="b">Click</button><script src="app.js"><\/script></body></html>',
+      'style.css': 'body{font-family:sans-serif;background:#10131a;color:#eaeaf0;text-align:center;padding:40px}button{padding:10px 18px;border-radius:10px;border:0;background:#f3c623}',
+      'app.js': 'document.getElementById("b").onclick = () => alert("Hello from the Prototype account!");', 'README.md': '# Prototype app\n\nA sample project in the shared **Prototype** account.\n' },
+    versions: [{ id: uid('ver'), label: 'Version 1', note: 'Initial version', at: now, snapshot: {} }] };
+  DB.saveData(d);
+}
+
+/* ===========================================================================
+   FOLLOW PROMPT (after sign-up), APP LOCK, DEVICE DIAGNOSTICS + BOOST MODES
+=========================================================================== */
+var KNIGHT_INSTAGRAM = { handle: 'knight_90_code_official', url: 'https://www.instagram.com/knight_90_code_official/' };
+function showFollowPrompt() {
+  const pr = DB.prefs(); if (pr.followPromptSeen) return;
+  pr.followPromptSeen = true; DB.savePrefs(pr);
+  openModalRaw('followModal');
+}
+
+/* The installed app is a focused mailbox: Inbox, Ask Knight AI, previews and device tools. */
+var APP_LOCK = APP_MODE === 'app' && !(function () { try { return sessionStorage.getItem('knight_full'); } catch (e) { return false; } })();
+function knightOpenFullSite() { try { sessionStorage.setItem('knight_full', '1'); } catch (e) {} location.hash = ''; location.reload(); }
+function knightBackToApp() { try { sessionStorage.removeItem('knight_full'); } catch (e) {} location.hash = '#/app'; location.reload(); }
+if (APP_LOCK) document.documentElement.classList.add('app-lock');
+
+/* ----- device diagnostics ----- */
+var DIAG = { data: null, bench: null, wake: null };
+function fmtBytes(n) { if (n == null) return '—'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return n.toFixed(n >= 100 || i === 0 ? 0 : 1) + ' ' + u[i]; }
+function gpuInfo() {
+  try {
+    const c = document.createElement('canvas'), gl = c.getContext('webgl') || c.getContext('experimental-webgl'); if (!gl) return { name: 'No WebGL', vendor: '' };
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return { name: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), vendor: ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR), maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE) };
+  } catch (e) { return { name: 'Unavailable', vendor: '' }; }
+}
+function measureFps(ms) {
+  return new Promise(res => { let n = 0; const t0 = performance.now(); const tick = (t) => { n++; if (t - t0 < ms) requestAnimationFrame(tick); else res(Math.round(n * 1000 / (t - t0))); }; requestAnimationFrame(tick); });
+}
+async function collectDiagnostics() {
+  const n = navigator, d = {};
+  d.cores = n.hardwareConcurrency || null;
+  d.ram = n.deviceMemory || null;                                  // browsers round this and cap it at 8 GB
+  d.heap = performance.memory ? { used: performance.memory.usedJSHeapSize, limit: performance.memory.jsHeapSizeLimit } : null;
+  d.gpu = gpuInfo();
+  d.screen = { w: screen.width, h: screen.height, dpr: window.devicePixelRatio || 1, depth: screen.colorDepth };
+  d.net = n.connection ? { type: n.connection.effectiveType, down: n.connection.downlink, rtt: n.connection.rtt, save: n.connection.saveData } : null;
+  d.platform = (n.userAgentData && n.userAgentData.platform) || n.platform || '—';
+  try { if (n.userAgentData && n.userAgentData.getHighEntropyValues) { const h = await n.userAgentData.getHighEntropyValues(['architecture', 'bitness', 'model', 'platformVersion']); d.arch = (h.architecture || '') + (h.bitness ? ' ' + h.bitness + '-bit' : ''); d.model = h.model || ''; d.osv = h.platformVersion || ''; } } catch (e) {}
+  try { if (n.storage && n.storage.estimate) { const s = await n.storage.estimate(); d.storage = { used: s.usage, quota: s.quota }; } } catch (e) {}
+  try { if (n.getBattery) { const b = await n.getBattery(); d.battery = { level: b.level, charging: b.charging }; } } catch (e) {}
+  d.fps = await measureFps(600);
+  return d;
+}
+/** A short CPU test: how many loop iterations fit in 200 ms, compared with a mid-range laptop. */
+function runCpuBench() {
+  return new Promise(res => setTimeout(() => {
+    let x = 0, it = 0; const end = performance.now() + 200;
+    while (performance.now() < end) { for (let i = 0; i < 20000; i++) x += Math.sqrt(i) * Math.sin(i); it++; }
+    const score = Math.round(it * 20000 / 1000);
+    res({ score, rating: score > 2600 ? 'Excellent' : score > 1400 ? 'Good' : score > 700 ? 'Fair' : 'Slow' });
+  }, 30));
+}
+async function refreshDiagnostics() {
+  const box = $('kappBody'); if (box && KAPP.tab === 'device') box.innerHTML = '<div class="kapp-empty">Reading your device…</div>';
+  DIAG.data = await collectDiagnostics(); if (KAPP.tab === 'device') renderKnightApp();
+}
+async function runBenchUI() { const b = $('benchBtn'); if (b) { b.disabled = true; b.textContent = 'Testing…'; } DIAG.bench = await runCpuBench(); if (KAPP.tab === 'device') renderKnightApp(); }
+
+/* ----- boost modes ----- */
+var BOOST_MODES = [
+  ['balanced', 'Balanced', 'Everything on. Best looking.', []],
+  ['performance', 'Performance', 'Turns off animations and blur so Knight feels instant on slower devices.', ['no-fx']],
+  ['saver', 'Battery saver', 'Performance, plus the live error watch checks every 5 seconds instead of every second.', ['no-fx', 'slow-watch']],
+  ['gaming', 'Gaming', 'Performance, keeps your screen awake, and holds back system notifications until you switch back.', ['no-fx', 'wake', 'mute']],
+  ['coding', 'Code mode', 'Bigger editor text, no animations, notifications held back, screen kept awake while you build.', ['no-fx', 'wake', 'mute']],
+  ['editing', 'Editing mode', 'Distraction-free writing: calm layout, comfortable reading size, notifications held back.', ['no-fx', 'mute']],
+  ['night', 'Night mode', 'Warm, dimmer colours for late sessions.', []],
+];
+function boostMode() { return DB.prefs().boostMode || 'balanced'; }
+function boostHas(flag) { const m = BOOST_MODES.find(x => x[0] === boostMode()); return !!(m && m[3].includes(flag)); }
+async function applyBoost(mode, quiet) {
+  const m = BOOST_MODES.find(x => x[0] === mode) || BOOST_MODES[0];
+  const pr = DB.prefs(); pr.boostMode = m[0]; DB.savePrefs(pr);
+  BOOST_MODES.forEach(x => document.body.classList.remove('boost-' + x[0]));
+  if (m[0] !== 'balanced') document.body.classList.add('boost-' + m[0]);
+  try { if (DIAG.wake) { await DIAG.wake.release(); DIAG.wake = null; } } catch (e) {}
+  if (m[3].includes('wake') && navigator.wakeLock) { try { DIAG.wake = await navigator.wakeLock.request('screen'); } catch (e) {} }
+  if (m[0] === 'coding' && !quiet && typeof APP_LOCK !== 'undefined' && !APP_LOCK && me()) { try { openKnightPage('terminalPage'); } catch (e) {} }
+  if (!quiet) toast(m[1] + ' on.');
+  if ($('kappBody') && KAPP.tab === 'device') renderKnightApp();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && boostHas('wake') && !DIAG.wake && navigator.wakeLock) navigator.wakeLock.request('screen').then(w => { DIAG.wake = w; }).catch(() => {}); });
+
+function renderKappDevice() {
+  const d = DIAG.data;
+  if (!d) { setTimeout(refreshDiagnostics, 0); return '<div class="kapp-empty">Reading your device…</div>'; }
+  const bar = (pct, tone) => `<div class="diag-bar"><i class="${tone || ''}" style="width:${Math.max(2, Math.min(100, pct))}%"></i></div>`;
+  const heapPct = d.heap ? d.heap.used / d.heap.limit * 100 : 0, stPct = d.storage && d.storage.quota ? d.storage.used / d.storage.quota * 100 : 0;
+  const cards = [
+    ['Processor', (d.cores || '?') + ' logical cores', (d.arch ? d.arch + ' · ' : '') + d.platform + (d.model ? ' · ' + d.model : ''), ''],
+    ['Graphics (GPU)', d.gpu.name, d.gpu.vendor ? d.gpu.vendor + (d.gpu.maxTex ? ' · max texture ' + d.gpu.maxTex : '') : '', ''],
+    ['Memory (RAM)', d.ram ? '~' + d.ram + ' GB' + (d.ram >= 8 ? '+' : '') : 'Not shared by this browser', d.heap ? 'Knight is using ' + fmtBytes(d.heap.used) + ' of ' + fmtBytes(d.heap.limit) : 'Browsers round this number', d.heap ? bar(heapPct, heapPct > 70 ? 'bad' : '') : ''],
+    ['Storage', d.storage ? fmtBytes(d.storage.used) + ' used' : 'Not shared', d.storage ? 'of ' + fmtBytes(d.storage.quota) + ' available to Knight' : '', d.storage ? bar(stPct) : ''],
+    ['Battery', d.battery ? Math.round(d.battery.level * 100) + '%' : 'Not shared', d.battery ? (d.battery.charging ? 'Charging' : 'On battery') : 'Desktop or unsupported', d.battery ? bar(d.battery.level * 100, d.battery.level < .2 && !d.battery.charging ? 'bad' : '') : ''],
+    ['Screen', d.screen.w + ' × ' + d.screen.h, d.screen.dpr + 'x density · ' + d.screen.depth + '-bit colour · ' + d.fps + ' fps now', ''],
+    ['Network', d.net ? d.net.type + ' · ' + d.net.down + ' Mbps' : 'Not shared', d.net ? d.net.rtt + ' ms latency' + (d.net.save ? ' · data saver on' : '') : '', ''],
+    ['Knight mode', APP_MODE === 'app' ? 'Installed app' : 'Browser tab', 'Notifications: ' + (('Notification' in window) ? Notification.permission : 'unsupported'), ''],
+  ];
+  const b = DIAG.bench;
+  return `<div class="diag-grid">${cards.map(([t, v, s, x]) => `<div class="diag-card"><small>${t}</small><b>${esc(v)}</b><span>${esc(s)}</span>${x}</div>`).join('')}</div>
+    <div class="diag-actions"><button class="nav-cta" onclick="refreshDiagnostics()">Refresh</button><button class="nav-cta" id="benchBtn" onclick="runBenchUI()">Run speed test</button>
+      ${b ? `<span class="diag-score"><b>${b.score}</b> points · ${b.rating}</span>` : ''}</div>
+    <h4 class="gh-h">Boost modes</h4>
+    <div class="boost-grid">${BOOST_MODES.map(([k, l, desc]) => `<button class="boost-card ${boostMode() === k ? 'on' : ''}" onclick="applyBoost('${k}')"><b>${l}</b><span>${desc}</span>${boostMode() === k ? '<em>Active</em>' : ''}</button>`).join('')}
+      <button class="boost-card" onclick="refreshKnight().then(t => { toast(t); renderKnightApp(); })"><b>Refresh</b><span>One tap clean-up: clears caches and the error log, releases preview frames, restarts the live connection.</span></button></div>
+    <p class="gh-hint">Browsers cannot free memory or overclock hardware. Boost modes make Knight itself lighter, which helps most on older phones and laptops.</p>`;
+}
+
+/* ===========================================================================
+   HEY KNIGHT: voice + typed commands, permissions, and app -> website control
+=========================================================================== */
+var VOICE = { rec: null, on: false, awake: false, awakeTimer: null, speak: true, log: [], pending: {}, supported: !!(window.SpeechRecognition || window.webkitSpeechRecognition) };
+var PAGE_WORDS = [
+  [/terminal|compiler|code editor/, 'terminalPage', 'the terminal'], [/notes?\b|notebook/, 'notesPage', 'Notes'], [/arcade|games?\b/, 'arcadePage', 'the Arcade'],
+  [/project|repo|repositor/, 'projectsPage', 'your projects'], [/studio|discover|explore/, 'studioPage', 'the Studio'], [/chat|messages?|communicat/, 'commPage', 'chat'],
+  [/social|friends?/, 'socialPage', 'Social'], [/settings?/, 'settingsPage', 'Settings'], [/deploy|link/, 'linkDeployerPage', 'the Link Deployer'],
+  [/inbox|app\b|mail/, 'knightAppPage', 'your inbox'], [/home|dashboard|main/, 'home', 'the dashboard'],
+];
+var VOICE_ACTIONS = ['open_page', 'boost', 'run_code', 'new_project', 'ask', 'read_inbox', 'time', 'refresh', 'permissions', 'stop_listening', 'fullscreen'];
+var NEEDS_SITE = ['open_page', 'run_code', 'new_project', 'fullscreen'];       // these act on the website, so the app hands them over
+
+function say(text) {
+  if (!VOICE.speak || !window.speechSynthesis || !text) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(String(text).replace(/[`*#_]/g, '').slice(0, 400)); u.rate = 1.03; speechSynthesis.speak(u); } catch (e) {}
+}
+function voiceLog(heard, did, ok) { VOICE.log.unshift({ heard, did, ok: ok !== false, at: Date.now() }); VOICE.log = VOICE.log.slice(0, 12); if ($('knightAppPage') && $('knightAppPage').classList.contains('active') && KAPP.tab === 'voice') renderVoiceLog(); }
+
+/** Rules first (instant, offline). Anything they do not recognise goes to Knight AI to interpret. */
+function parseCommandRules(raw) {
+  const t = ' ' + String(raw).toLowerCase().replace(/[.,!?]/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+  let m;
+  const modes = [['gaming', /gam(e|ing)/], ['coding', /cod(e|ing)\b/], ['editing', /edit(ing)?\b|writing|focus/], ['night', /night|dark|sleep/], ['saver', /batter|saver|power sav/], ['performance', /perform|fast|speed|boost/], ['balanced', /balanc|normal|default|reset/]];
+  if (/ mode /.test(t) || /\b(switch|turn on|enable|activate|set|boost)\b/.test(t)) for (const [k, re] of modes) if (re.test(t) && (/ mode /.test(t) || /\b(switch|turn on|enable|activate|boost)\b/.test(t))) return { action: 'boost', mode: k };
+  if (/\b(refresh|clean up|clear cache|tidy|reload)\b/.test(t)) return { action: 'refresh' };
+  if (/\b(stop listening|go to sleep|goodnight|be quiet)\b/.test(t)) return { action: 'stop_listening' };
+  if (/\b(what('s| is) the time|what time|what('s| is) the date|today's date)\b/.test(t)) return { action: 'time' };
+  if (/\bread (me )?(my )?(inbox|notifications?|messages?|mail)\b|\bany (new )?(notifications?|messages?)\b/.test(t)) return { action: 'read_inbox' };
+  if (/\bpermission/.test(t)) return { action: 'permissions' };
+  if (/\bfull ?screen\b/.test(t)) return { action: 'fullscreen' };
+  if (/\b(run|compile|execute)\b.*\b(code|program|it)\b|^ (run|compile) /.test(t)) return { action: 'run_code' };
+  if ((m = /\b(?:new|create|make|start) (?:a |an )?(?:new )?(?:project|repo|repository|app|website)(?: (?:called|named))? ([a-z0-9 _-]{2,40})/.exec(t))) return { action: 'new_project', name: m[1].trim() };
+  if ((m = /\b(?:open|go to|show|take me to|launch)\b (?:me )?(?:the |my )?(.+)/.exec(t))) for (const [re, id] of PAGE_WORDS) if (re.test(m[1])) return { action: 'open_page', page: id };
+  return null;
+}
+/** Knight AI turns free-form speech into one of the allowed actions (never anything outside the list). */
+async function aiIntent(text) {
+  const sys = 'You turn a spoken request into ONE JSON object and nothing else. Allowed "action" values: ' + VOICE_ACTIONS.join(', ') + '. ' +
+    'open_page needs "page" (one of terminalPage, notesPage, arcadePage, projectsPage, studioPage, commPage, socialPage, settingsPage, linkDeployerPage, knightAppPage, home). ' +
+    'boost needs "mode" (balanced, performance, saver, gaming, coding, editing, night). new_project needs "name". ask needs "question". ' +
+    'If the person is just chatting or asking a question, use {"action":"ask","question":"<their words>"}. Output raw JSON only.';
+  const r = await callAI([{ role: 'system', content: sys }, { role: 'user', content: text }]);
+  const j = /\{[\s\S]*\}/.exec(r.content); if (!j) return { action: 'ask', question: text };
+  try { const o = JSON.parse(j[0]); return VOICE_ACTIONS.includes(o.action) ? o : { action: 'ask', question: text }; } catch (e) { return { action: 'ask', question: text }; }
+}
+
+async function handleSpoken(text) {
+  text = String(text || '').trim(); if (!text) return;
+  let cmd = parseCommandRules(text);
+  if (!cmd) { try { cmd = await aiIntent(text); } catch (e) { cmd = { action: 'ask', question: text }; } }
+  return dispatchCommand(cmd, text);
+}
+function dispatchCommand(cmd, heard) {
+  if (APP_LOCK && NEEDS_SITE.includes(cmd.action)) return sendToWebsite(cmd, heard);
+  return executeCommand(cmd, heard);
+}
+/* app -> website: the app hands site jobs to the website window; if it is closed the job waits in a queue */
+function sendToWebsite(cmd, heard) {
+  const id = uid('cmd'); VOICE.pending[id] = { cmd, heard, at: Date.now() };
+  const q = JSON.parse(localStorage.getItem('knight_cmd_queue') || '[]'); q.push({ id, cmd, heard, at: Date.now(), user: myId() });
+  try { localStorage.setItem('knight_cmd_queue', JSON.stringify(q.slice(-20))); } catch (e) {}
+  if (KAPP.chan) KAPP.chan.postMessage({ type: 'command', id, cmd, heard, user: myId() });
+  setTimeout(() => {
+    if (!VOICE.pending[id]) return;
+    delete VOICE.pending[id];
+    const msg = 'The website is not open, so I saved that. It will run as soon as you open the website.';
+    voiceLog(heard || cmd.action, msg, false); say(msg); toast(msg);
+    showOpenSiteButton();
+  }, 2500);
+  return 'sent';
+}
+function showOpenSiteButton() { const b = $('voiceOpenSite'); if (b) b.style.display = 'inline-flex'; }
+function openWebsiteFromApp() { try { window.open(location.origin + location.pathname.replace(/[^/]*$/, '') + '?site=1', '_blank', 'noopener'); } catch (e) { knightOpenFullSite(); } }
+/* website side: run jobs that arrive live or were queued while it was closed */
+function runQueuedCommands() {
+  if (APP_LOCK || !me()) return;
+  let q = []; try { q = JSON.parse(localStorage.getItem('knight_cmd_queue') || '[]'); } catch (e) {}
+  const mine = q.filter(x => x.user === myId() && Date.now() - x.at < 30 * 60000); if (!mine.length) return;
+  try { localStorage.setItem('knight_cmd_queue', JSON.stringify(q.filter(x => !mine.includes(x)))); } catch (e) {}
+  mine.forEach(x => executeCommand(x.cmd, x.heard, x.id));
+}
+window.addEventListener('storage', (e) => { if (e.key === 'knight_cmd_queue') runQueuedCommands(); });
+
+async function executeCommand(cmd, heard, replyId) {
+  let result = '', ok = true;
+  try {
+    switch (cmd.action) {
+      case 'open_page': {
+        if (cmd.page === 'home') { goHome(); result = 'Opened the dashboard.'; }
+        else { openKnightPage(cmd.page); const hit = PAGE_WORDS.find(x => x[1] === cmd.page); result = 'Opened ' + (hit ? hit[2] : cmd.page) + '.'; }
+        break;
+      }
+      case 'boost': { const m = BOOST_MODES.find(x => x[0] === cmd.mode); if (!m) { result = 'I do not know that mode.'; ok = false; break; } await applyBoost(cmd.mode); result = m[1] + ' mode is on.'; break; }
+      case 'run_code': { openKnightPage('terminalPage'); setTimeout(() => { try { runCodeUI(); } catch (e) {} }, 400); result = 'Running your code in the terminal.'; break; }
+      case 'new_project': { const p = quickCreateProject(cmd.name || 'New project'); result = 'Created the project ' + p.name + '.'; openProjectDetail(p.id); break; }
+      case 'fullscreen': { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); result = 'Toggled full screen.'; break; }
+      case 'refresh': result = await refreshKnight(); break;
+      case 'time': { const n = new Date(); result = 'It is ' + n.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' on ' + n.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }) + '.'; break; }
+      case 'read_inbox': { const u = appInbox().filter(x => !x.read); result = u.length ? 'You have ' + u.length + ' new: ' + u.slice(0, 3).map(x => x.title).join('. ') + '.' : 'Your inbox is empty.'; break; }
+      case 'permissions': { KAPP.tab = 'voice'; if ($('kappBody')) renderKnightApp(); result = 'Here are the permissions I can ask for.'; break; }
+      case 'stop_listening': { stopWake(); result = 'Okay, I stopped listening.'; break; }
+      case 'ask': {
+        voiceLog(heard || cmd.question, 'Thinking…', true); say('One moment.');
+        const r = await callAI([{ role: 'system', content: KAPP_SYSTEM + ' Keep spoken answers under 60 words.' }, { role: 'user', content: cmd.question || heard }]);
+        const chat = appChat(); chat.push({ role: 'user', content: cmd.question || heard }, { role: 'assistant', content: r.content }); appSaveChat(chat);
+        result = r.content; break;
+      }
+      default: result = 'I cannot do that yet.'; ok = false;
+    }
+  } catch (e) { result = 'That did not work: ' + ((e && e.message) || 'unknown error'); ok = false; }
+  voiceLog(heard || cmd.action, result, ok);
+  if (cmd.action !== 'ask' || ok) say(result); if (cmd.action !== 'ask') toast(result, !ok);
+  if (replyId && KAPP.chan) KAPP.chan.postMessage({ type: 'command-result', id: replyId, text: result, ok });
+  return result;
+}
+/* the app hears back from the website */
+if (typeof KAPP !== 'undefined' && KAPP.chan) {
+  KAPP.chan.addEventListener('message', (e) => {
+    const m = e.data || {};
+    if (m.type === 'command' && !APP_LOCK && me() && m.user === myId()) { KAPP.chan.postMessage({ type: 'command-ack', id: m.id }); executeCommand(m.cmd, m.heard, m.id); }
+    if (m.type === 'command-ack' && VOICE.pending[m.id]) VOICE.pending[m.id].acked = true;
+    if (m.type === 'command-result' && VOICE.pending[m.id]) { const p = VOICE.pending[m.id]; delete VOICE.pending[m.id]; voiceLog(p.heard || p.cmd.action, 'Website: ' + m.text, m.ok); say(m.text); toast(m.text, !m.ok); }
+  });
+}
+function quickCreateProject(name) {
+  const d = DB.data(), id = uid('prj'), now = Date.now(), clean = String(name).replace(/\b\w/g, c => c.toUpperCase()).slice(0, 40);
+  d.projects[id] = { id, name: clean, description: 'Created by voice.', ownerId: myId(), visibility: 'private', category: 'General', tags: [], stars: 0, starredBy: [], members: [], createdAt: now, updatedAt: now,
+    files: { 'index.html': '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>' + clean + '</title></head>\n<body><h1>' + clean + '</h1></body></html>', 'README.md': '# ' + clean + '\n' },
+    versions: [{ id: uid('ver'), label: 'Version 1', note: 'Initial version', at: now, snapshot: {} }] };
+  DB.saveData(d); return d.projects[id];
+}
+async function refreshKnight() {
+  const done = [];
+  try { if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); done.push(ks.length + ' cache' + (ks.length === 1 ? '' : 's') + ' cleared'); } } catch (e) {}
+  try { liveClear(); done.push('error log cleared'); } catch (e) {}
+  try { document.querySelectorAll('.tp-frame iframe, #kappPreviewFrame').forEach(f => { f.srcdoc = ''; }); done.push('preview frames released'); } catch (e) {}
+  try { if (typeof socket !== 'undefined' && socket) { socket.close(); } connectKnightSocket(); done.push('live connection restarted'); } catch (e) {}
+  DIAG.data = null; DIAG.bench = null; renderAppBadge();
+  if ($('kappBody') && $('knightAppPage').classList.contains('active')) renderKnightApp();
+  return 'Refreshed: ' + (done.join(', ') || 'nothing needed cleaning') + '.';
+}
+
+/* ----- wake word: "Hey Knight" ----- */
+function extractWake(text) {
+  const m = /\b(?:hey|hi|ok|okay|hello|yo)[, ]+(?:knight|night|nite|nate)\b[,. ]*(.*)$/i.exec(String(text || ''));
+  return m ? { woke: true, rest: m[1].trim() } : { woke: false };
+}
+function startWake() {
+  if (!VOICE.supported) { toast('This browser cannot listen for “Hey Knight”. Chrome and Edge can; you can still type commands.', true); return; }
+  if (VOICE.on) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = new SR();
+  rec.continuous = true; rec.interimResults = false; rec.lang = navigator.language || 'en-US';
+  rec.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (!e.results[i].isFinal) continue;
+      const text = e.results[i][0].transcript.trim(); if (!text) continue;
+      const w = extractWake(text);
+      if (w.woke) { setAwake(true); if (w.rest) { setAwake(false); handleSpoken(w.rest); } else { say('Yes?'); } }
+      else if (VOICE.awake) { setAwake(false); handleSpoken(text); }
+    }
+  };
+  rec.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { VOICE.on = false; toast('Microphone permission is blocked. Allow it in Permissions below.', true); paintVoice(); } };
+  rec.onend = () => { if (VOICE.on) { try { rec.start(); } catch (e) {} } else paintVoice(); };
+  try { rec.start(); VOICE.rec = rec; VOICE.on = true; toast('Listening for “Hey Knight”. Keep this window open.'); } catch (e) { toast('Could not start the microphone.', true); }
+  paintVoice();
+}
+function stopWake() { VOICE.on = false; setAwake(false); try { VOICE.rec && VOICE.rec.stop(); } catch (e) {} paintVoice(); }
+function setAwake(v) { VOICE.awake = v; clearTimeout(VOICE.awakeTimer); if (v) VOICE.awakeTimer = setTimeout(() => setAwake(false), 8000); paintVoice(); }
+function toggleWake() { VOICE.on ? stopWake() : startWake(); }
+function paintVoice() {
+  const o = $('voiceOrb'), s = $('voiceState'); if (!o) return;
+  o.className = 'voice-orb' + (VOICE.awake ? ' awake' : VOICE.on ? ' on' : '');
+  if (s) s.textContent = VOICE.awake ? 'Listening… tell me what to do' : VOICE.on ? 'Say “Hey Knight”' : (VOICE.supported ? 'Tap to start listening' : 'Voice not supported here. Type below.');
+}
+function voiceTypeSubmit() { const i = $('voiceText'); const t = (i.value || '').trim(); if (!t) return; i.value = ''; const w = extractWake(t); handleSpoken(w.woke && w.rest ? w.rest : t); }
+
+/* ----- permissions ----- */
+var PERMS = [
+  ['microphone', 'Microphone', 'So you can say “Hey Knight”.', async () => { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); }],
+  ['notifications', 'Notifications', 'So Knight AI can message you.', async () => { await Notification.requestPermission(); }],
+  ['geolocation', 'Location', 'For location-aware notes and tools.', () => new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 15000 }))],
+  ['camera', 'Camera', 'For scanning and photos in future tools.', async () => { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); }],
+  ['clipboard-read', 'Clipboard', 'So “paste this into my project” can work.', async () => { await navigator.clipboard.readText(); }],
+  ['persistent-storage', 'Keep my data', 'Stops the browser from clearing Knight when space runs low.', async () => { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); }],
+];
+var PERM_STATE = {};
+async function loadPermStates() {
+  for (const [name] of PERMS) {
+    try {
+      if (name === 'persistent-storage') PERM_STATE[name] = (navigator.storage && navigator.storage.persisted && await navigator.storage.persisted()) ? 'granted' : 'prompt';
+      else if (name === 'notifications' && 'Notification' in window) PERM_STATE[name] = Notification.permission === 'default' ? 'prompt' : Notification.permission;
+      else if (navigator.permissions) PERM_STATE[name] = (await navigator.permissions.query({ name })).state;
+      else PERM_STATE[name] = 'unknown';
+    } catch (e) { PERM_STATE[name] = 'unknown'; }
+  }
+  if ($('permList')) renderPermList();
+}
+async function askPermission(name) {
+  const p = PERMS.find(x => x[0] === name); if (!p) return;
+  try { await p[3](); } catch (e) {}
+  await loadPermStates();
+  toast(p[1] + ': ' + (PERM_STATE[name] === 'granted' ? 'allowed.' : PERM_STATE[name] === 'denied' ? 'blocked. Allow it in your browser’s site settings.' : 'not granted yet.'), PERM_STATE[name] === 'denied');
+}
+async function askAllPermissions() { for (const [n] of PERMS) { if (PERM_STATE[n] !== 'granted') await askPermission(n); } say('Permissions checked.'); }
+function renderPermList() {
+  const el = $('permList'); if (!el) return;
+  el.innerHTML = PERMS.map(([n, label, why]) => { const st = PERM_STATE[n] || 'unknown';
+    return `<div class="perm-row"><div><b>${label}</b><small>${why}</small></div><span class="perm-st ${st}">${st === 'prompt' ? 'not asked' : st}</span>${st === 'granted' ? '' : `<button class="nav-cta" onclick="askPermission('${n}')">Allow</button>`}</div>`; }).join('');
+}
+function renderVoiceLog() {
+  const el = $('voiceLog'); if (!el) return;
+  el.innerHTML = VOICE.log.length ? VOICE.log.map(l => `<div class="voice-line ${l.ok ? '' : 'bad'}"><b>“${esc(l.heard)}”</b><span>${esc(String(l.did).slice(0, 220))}</span></div>`).join('') : '<p class="gh-hint">Nothing yet. Try “Hey Knight, open the terminal”.</p>';
+}
+function renderKappVoice() {
+  setTimeout(() => { paintVoice(); renderVoiceLog(); renderPermList(); loadPermStates(); }, 0);
+  const ex = ['open the terminal', 'gaming mode', 'coding mode', 'refresh', 'run my code', 'create project todo app', 'read my inbox', 'what time is it', 'explain closures in one line'];
+  return `<div class="voice-panel">
+    <div class="voice-top"><button class="voice-orb" id="voiceOrb" onclick="toggleWake()" aria-label="Toggle Hey Knight"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <div><h3>Hey Knight</h3><p id="voiceState">Tap to start listening</p>
+        <label class="voice-opt"><input type="checkbox" ${VOICE.speak ? 'checked' : ''} onchange="VOICE.speak=this.checked"> Speak answers aloud</label></div></div>
+    <div class="kapp-reply"><input id="voiceText" placeholder="Or type a command… e.g. open notes" onkeydown="if(event.key==='Enter')voiceTypeSubmit()"><button class="nav-cta btn-golden" onclick="voiceTypeSubmit()">Do it</button></div>
+    <div class="voice-chips">${ex.map(x => `<button onclick="handleSpoken('${x}')">${x}</button>`).join('')}</div>
+    <button class="nav-cta" id="voiceOpenSite" style="display:none;margin:8px 0" onclick="openWebsiteFromApp()">Open the website</button>
+    <h4 class="gh-h">Recent</h4><div id="voiceLog"></div>
+    <h4 class="gh-h">Permissions</h4><p class="gh-hint" style="padding:0 0 8px">Knight can only use what your browser lets it. It cannot control other apps, your files, contacts or system settings.</p>
+    <div id="permList"></div><button class="nav-cta" onclick="askAllPermissions()">Allow all</button></div>`;
 }
